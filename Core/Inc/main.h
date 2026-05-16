@@ -32,7 +32,6 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #define EMPL_TARGET_STM32
-#define MPU6050
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

@@ -32,10 +32,21 @@ typedef struct
 	uint8_t inverted;
 	uint8_t encoder_inverted;
 	uint32_t last_count;
+	int32_t position; /* cumulative encoder counts */
+	int32_t last_delta;
+	/* position PID */
+	int32_t pos_target;
+	uint8_t pos_active;
+	float pos_kp;
+	float pos_ki;
+	float pos_kd;
+	float pos_integral;
+	float pos_last_error;
+	float pos_output_limit;
+	float target_bias_counts_per_sec;
 } MotorState_t;
 
-#define MOTOR_PWM_PERIOD 999.0f
-#define MOTOR_MAX_SPEED_COUNTS_PER_SEC 3000.0f
+/* config.h provides MOTOR_PWM_PERIOD and MOTOR_MAX_SPEED_COUNTS_PER_SEC */
 
 static const MotorHardware_t motor_hw[MOTOR_COUNT] =
 {
@@ -125,8 +136,8 @@ static int32_t motor_read_delta(MotorId_t motor)
 	}
 
 	motor_state[motor].last_count = current;
-	motor_state[motor].pid.feedback = (float)signed_diff;
-
+	motor_state[motor].last_delta = signed_diff;
+	/* position accumulation will be handled by caller (to allow unified sampling) */
 	return signed_diff;
 }
 
@@ -142,14 +153,20 @@ static MotorId_t motor_valid_id(MotorId_t motor)
 
 void Motor_Init(void)
 {
+	/* Per-wheel velocity PID defaults from named macros (RR, RF, LF, LR) */
+	const float kp_arr[MOTOR_COUNT] = { VELOCITY_PID_KP_RR, VELOCITY_PID_KP_RF, VELOCITY_PID_KP_LF, VELOCITY_PID_KP_LR };
+	const float ki_arr[MOTOR_COUNT] = { VELOCITY_PID_KI_RR, VELOCITY_PID_KI_RF, VELOCITY_PID_KI_LF, VELOCITY_PID_KI_LR };
+	const float kd_arr[MOTOR_COUNT] = { VELOCITY_PID_KD_RR, VELOCITY_PID_KD_RF, VELOCITY_PID_KD_LF, VELOCITY_PID_KD_LR };
+
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
 		motor_state[motor].inverted = 0;
 		motor_state[motor].encoder_inverted = 0;
 		motor_state[motor].last_count = 0;
-		motor_state[motor].pid.kp = 0.0f;
-		motor_state[motor].pid.ki = 0.0f;
-		motor_state[motor].pid.kd = 0.0f;
+		/* Initialize velocity PID defaults from config (per-wheel) */
+		motor_state[motor].pid.kp = kp_arr[motor];
+		motor_state[motor].pid.ki = ki_arr[motor];
+		motor_state[motor].pid.kd = kd_arr[motor];
 		motor_state[motor].pid.target = 0.0f;
 		motor_state[motor].pid.feedback = 0.0f;
 		motor_state[motor].pid.error = 0.0f;
@@ -163,6 +180,19 @@ void Motor_Init(void)
 		HAL_GPIO_WritePin(motor_hw[motor].in2_port, motor_hw[motor].in2_pin, GPIO_PIN_RESET);
 
 		motor_state[motor].last_count = __HAL_TIM_GET_COUNTER(motor_hw[motor].encoder_timer);
+		motor_state[motor].position = 0;
+		motor_state[motor].last_delta = 0;
+
+		motor_state[motor].pos_target = 0;
+		motor_state[motor].pos_active = 0;
+		/* Position PID defaults */
+		motor_state[motor].pos_kp = POSITION_PID_KP;
+		motor_state[motor].pos_ki = POSITION_PID_KI;
+		motor_state[motor].pos_kd = POSITION_PID_KD;
+		motor_state[motor].pos_integral = 0.0f;
+		motor_state[motor].pos_last_error = 0.0f;
+		motor_state[motor].pos_output_limit = POSITION_OUTPUT_LIMIT;
+		motor_state[motor].target_bias_counts_per_sec = 0.0f;
 
 		if (HAL_TIM_PWM_Start(motor_hw[motor].pwm_timer, motor_hw[motor].pwm_channel) != HAL_OK)
 		{
@@ -307,12 +337,57 @@ void Motor_UpdateControl(float dt_s)
 		return;
 	}
 
+	/* First: sample encoder deltas for all motors and update positions/feedback */
+	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
+	{
+		int32_t d = motor_read_delta(motor);
+		motor_state[motor].position += d;
+		motor_state[motor].pid.feedback = (float)d / dt_s;
+	}
+
+	/* Position (outer) -> Velocity (inner) cascade and velocity PID */
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
 		MotorPid_t *pid = &motor_state[motor].pid;
-		/* Safety: if target is zero, force output to 0 to avoid unexpected spin
-		   (protects against spurious encoder readings or wiring issues). */
-		if (pid->target == 0.0f)
+
+		/* If position control active, compute desired velocity setpoint from position PID */
+		if (motor_state[motor].pos_active)
+		{
+			float pos_err = (float)(motor_state[motor].pos_target - motor_state[motor].position);
+			float pos_deriv = (pos_err - motor_state[motor].pos_last_error) / dt_s;
+			float desired = (motor_state[motor].pos_kp * pos_err) + (motor_state[motor].pos_ki * motor_state[motor].pos_integral) + (motor_state[motor].pos_kd * pos_deriv);
+
+			/* anti-windup and integral update: only integrate if not saturated */
+			float unclamped = desired;
+			if (unclamped > motor_state[motor].pos_output_limit) unclamped = motor_state[motor].pos_output_limit;
+			if (unclamped < -motor_state[motor].pos_output_limit) unclamped = -motor_state[motor].pos_output_limit;
+
+			/* update integral using pos_err */
+			motor_state[motor].pos_integral += pos_err * dt_s;
+			motor_state[motor].pos_last_error = pos_err;
+
+			/* set inner-loop velocity target (counts/sec) */
+			/* clamp to max motor speed */
+			if (desired > MOTOR_MAX_SPEED_COUNTS_PER_SEC) desired = MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+			if (desired < -MOTOR_MAX_SPEED_COUNTS_PER_SEC) desired = -MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+			pid->target = desired;
+		}
+
+		if (motor_state[motor].target_bias_counts_per_sec != 0.0f)
+		{
+			pid->target += motor_state[motor].target_bias_counts_per_sec;
+			if (pid->target > MOTOR_MAX_SPEED_COUNTS_PER_SEC)
+			{
+				pid->target = MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+			}
+			else if (pid->target < -MOTOR_MAX_SPEED_COUNTS_PER_SEC)
+			{
+				pid->target = -MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+			}
+		}
+
+		/* Safety: if velocity target is zero and no position active, force outputs 0 */
+		if ((pid->target == 0.0f) && (motor_state[motor].pos_active == 0))
 		{
 			pid->error = 0.0f;
 			pid->integral = 0.0f;
@@ -322,19 +397,105 @@ void Motor_UpdateControl(float dt_s)
 			continue;
 		}
 
-		float delta = (float)motor_read_delta(motor);
-
-		pid->feedback = delta / dt_s;
-		pid->error = pid->target - pid->feedback;
-		pid->integral += pid->error * dt_s;
-
-		float derivative = (pid->error - pid->last_error) / dt_s;
-		float output = (pid->kp * pid->error) + (pid->ki * pid->integral) + (pid->kd * derivative);
-
+		/* Velocity PID */
+		float error = pid->target - pid->feedback;
+		pid->error = error;
+		pid->integral += error * dt_s;
+		float derivative = (error - pid->last_error) / dt_s;
+		float output = (pid->kp * error) + (pid->ki * pid->integral) + (pid->kd * derivative);
 		output = motor_clamp_float(output, pid->output_min, pid->output_max);
 		pid->output = output;
-		pid->last_error = pid->error;
+		pid->last_error = error;
 
 		Motor_SetRawPWM(motor, (int32_t)output);
 	}
+}
+
+/* Position control API implementations */
+void Motor_SetPositionPIDGain(MotorId_t motor, float kp, float ki, float kd)
+{
+	motor = motor_valid_id(motor);
+	motor_state[motor].pos_kp = kp;
+	motor_state[motor].pos_ki = ki;
+	motor_state[motor].pos_kd = kd;
+}
+
+void Motor_SetPositionTarget(MotorId_t motor, int32_t counts_relative)
+{
+	motor = motor_valid_id(motor);
+	motor_state[motor].pos_target = motor_state[motor].position + counts_relative;
+	motor_state[motor].pos_integral = 0.0f;
+	motor_state[motor].pos_last_error = 0.0f;
+	motor_state[motor].pos_active = 1;
+}
+
+void Motor_ClearPositionTarget(MotorId_t motor)
+{
+	motor = motor_valid_id(motor);
+	motor_state[motor].pos_active = 0;
+	motor_state[motor].pos_integral = 0.0f;
+	motor_state[motor].pos_last_error = 0.0f;
+	motor_state[motor].target_bias_counts_per_sec = 0.0f;
+	/* clear inner-loop target and reset velocity PID integrator to avoid immediate reactivation */
+	motor_state[motor].pid.target = 0.0f;
+	motor_state[motor].pid.integral = 0.0f;
+	motor_state[motor].pid.error = 0.0f;
+	motor_state[motor].pid.last_error = 0.0f;
+	motor_state[motor].pid.output = 0.0f;
+	Motor_SetRawPWM(motor, 0);
+}
+
+int32_t Motor_GetPosition(MotorId_t motor)
+{
+	motor = motor_valid_id(motor);
+	return motor_state[motor].position;
+}
+
+uint8_t Motor_PositionReached(MotorId_t motor, int32_t tolerance)
+{
+	motor = motor_valid_id(motor);
+	if (!motor_state[motor].pos_active) return 1;
+	int32_t err = motor_state[motor].pos_target - motor_state[motor].position;
+	if (err < 0) err = -err;
+	return (err <= tolerance) ? 1 : 0;
+}
+
+uint8_t Motor_HasActivePositionTarget(void)
+{
+	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
+	{
+		if (motor_state[motor].pos_active)
+		{
+			return 1U;
+		}
+	}
+
+	return 0U;
+}
+
+void Motor_SetTargetBiasPercent(MotorId_t motor, float percent_bias)
+{
+	motor = motor_valid_id(motor);
+	if (percent_bias < -100.0f)
+	{
+		percent_bias = -100.0f;
+	}
+	else if (percent_bias > 100.0f)
+	{
+		percent_bias = 100.0f;
+	}
+
+	motor_state[motor].target_bias_counts_per_sec = (percent_bias * MOTOR_MAX_SPEED_COUNTS_PER_SEC) / 100.0f;
+}
+
+void Motor_ClearTargetBias(MotorId_t motor)
+{
+	motor = motor_valid_id(motor);
+	motor_state[motor].target_bias_counts_per_sec = 0.0f;
+}
+
+void Motor_PositionUpdate(float dt_s)
+{
+	/* Alias for Motor_UpdateControl for compatibility (outer loop handled there) */
+	Motor_UpdateControl(dt_s);
 }

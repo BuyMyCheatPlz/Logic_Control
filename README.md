@@ -82,33 +82,40 @@ st-flash write Logic_Control.bin 0x8000000
 注：引脚注释来源于 HAL MSPInit 中的 GPIO 注释与 `motor.c` 中的硬件表；在修改硬件连线或使用不同开发板前，请以 `Logic_Control.ioc` 或 STM32CubeMX 配置为准。
 
 串口指令（Serial Commands）
-本固件在 `USART2`（115200 8N1）上实现了一组文本命令，用于调试与运动控制。命令以回车或换行结束（CR/LF），命令长度上限为 31 字符，队列深度 4（见 `Core/Src/freertos.c`）。命令使用大写字母。
+本固件在 `USART2`（115200 8N1）上实现了一组文本命令，用于调试与运动控制。命令以回车或换行结束（CR/LF），命令长度上限为 31 字符，队列深度 4（见 `Core/Src/freertos.c`）。命令解析对前导空格/制表符容错，但请使用大写命令词以保持一致性。
 
 - 基本格式：单行 ASCII 文本，结尾 CR 或 LF。
-- 运动指令（新语法，支持格移动）：
-	- `LEFT <n>` — 向左移动 n 格（n 为正整数，缺省为 1）。每格长度 0.30 m。示例：`LEFT 1`。
-	- `RIGHT <n>` — 向右移动 n 格（n 为正整数，缺省为 1）。示例：`RIGHT 2`。
-	- `FORWARD <n>` — 向前移动 n 格（同上）。示例：`FORWARD 1`。
-	- `BACKWARD <n>` 或 `BACK <n>` — 向后移动 n 格（接受 `BACKWARD` 与 `BACK` 两种写法）。示例：`BACKWARD 1`。
-	- 行为说明：在收到运动命令后固件会先回传 `<CMD> OK\r\n`（例如 `LEFT OK`），动作完成后会回传 `STOPPED\r\n` 表示已停止并达到目标格数。
 
-- 速度/运行控制：
-	- `RUN <percent>` — 设置全车基础速度（-100 到 100），例如 `RUN 30`；返回 `RUN OK <percent>\r\n`。
-	- `STOP` — 立即停止所有电机并清除目标速度；返回 `STOP OK\r\n`（同时中断当前格移动）。
+- 支持的命令（精确匹配实现）
+	- `STOP` — 立即停止所有动作，清除运动队列与位置目标，并发送：`STOPPED\r\n`。
+	- `LEFT <n>` — 向左移动 `n` 格（`n` 为正整数，缺省为 `1`）。示例：`LEFT 1`。
+	- `RIGHT <n>` — 向右移动 `n` 格（`n` 为正整数，缺省为 `1`）。示例：`RIGHT 2`。
+	- `FORWARD <n>` — 向前移动 `n` 格（`n` 为正整数，缺省为 `1`）。示例：`FORWARD 1`。
+	- `BACKWARD <n>` 或 `BACK <n>` — 向后移动 `n` 格（等价写法），示例：`BACK 1`。
+	- `RUN <percent>` — 以统一基础速度运行，`percent` 为 -100 到 100 的整数或整数字符串，例如 `RUN 30`。此命令设置基础速度并不会返回确认文本。
+	- `MPU ON` / `MPU OFF` — 启用或禁用 MPU6050 的航向（pitch）校正；命令不会返回确认文本。
+	- `PID <kp> <ki> <kd>` — 设置航向 PID 参数（浮点）；此命令用于航向 PID（非车轮速度 PID），命令执行后不会返回确认文本。
 
-- 传感器与 PID：
-	- `MPU ON` — 启用 MPU6050 的航向校正，固件会以当前俯仰作为目标并重置航向 PID；返回 `MPU ON\r\n`。
-	- `MPU OFF` — 关闭航向校正并重置航向 PID；返回 `MPU OFF\r\n`。
-	- `PID <kp> <ki> <kd>` — 设置航向 PID 参数（浮点），例如 `PID 0.5 0.05 0.1`；成功返回 `PID OK <kp> <ki> <kd>\r\n`。
+- 注意（重要）：
+	- 固件只会在动作完成或 `STOP` 时通过 `USART2` 发送 `STOPPED\r\n`；其它命令默认不发送回复。请不要依赖命令确认文本，除非你检查 `STOPPED\r\n`。
+	- 命令参数会被严格解析并检查格式/范围，非法参数会被静默忽略（即不返回错误文本）。
 
-- 其他命令：
-  - （无）
+- 命令实现要点（参考 `Core/Src/freertos.c`）：
+	- 命令队列深度：4，单条最大长度：31 字符。
+	- 移动命令会把请求放入运动队列并由控制循环非阻塞执行；单次移动超时时间见 `Core/Inc/config.h` 的 `POSITION_TIMEOUT_MS`。
+	- `PID` 命令调整的是航向 PID（用于产生每轮的差速偏置），而非直接调整每轮速度 PID。要在线调整单轮速度 PID，请使用 `Motor_SetPIDGain()` API（需要在固件中添加对应的 UART 控制命令以实现运行时调参）。
 
-- 错误回复说明：
-	- `ERR CMD` — 未知命令。
-	- `ERR PARAM` — 参数缺失或不合法。
-	- `ERR FORMAT` — 参数格式错误。
-	- `ERR RANGE` — 数值超出允许范围。
+- VOFA / 观测：
+	- 固件通过 `USART3` 以 VOFA justfloat 格式周期性发送一个 8 浮点数帧（大小由 `VOFA_JUSTFLOAT_FLOATS` 与 `VOFA_JUSTFLOAT_PERIOD_MS` 控制）。帧内顺序为：
+		0: 右后（RIGHT_REAR）当前速度 (counts/s)
+		1: 右后目标速度 (counts/s)
+		2: 左后（LEFT_REAR）当前速度
+		3: 左后目标速度
+		4: 右前（RIGHT_FRONT）当前速度
+		5: 右前目标速度
+		6: 左前（LEFT_FRONT）当前速度
+		7: 左前目标速度
+	- 使用 VOFA 可以在主机端画图以观察每轮的跟踪性能与调参效果。
 
 更多实现细节见 `Core/Src/freertos.c`（命令接收、解析与处理逻辑）。
 
@@ -120,3 +127,23 @@ st-flash write Logic_Control.bin 0x8000000
 - 减速比：20
 
 如果你的硬件编码器或减速比与上述不同，请在 Flash 前调整 `Core/Src/freertos.c` 中的 `ENCODER_LINES`、`ENCODER_QUADRATURE` 或 `GEAR_RATIO` 常量以匹配真实值。
+
+按轮速度 PID 调参
+-----------------
+本固件支持为四轮分别设定速度（内环）PID 初始值，方便针对各轮差异单独调参。
+
+- 宏位置：`Core/Inc/config.h`。
+- 宏名（按轮）：
+	- `VELOCITY_PID_KP_RR` / `VELOCITY_PID_KI_RR` / `VELOCITY_PID_KD_RR` （右后，RIGHT_REAR）
+	- `VELOCITY_PID_KP_RF` / `VELOCITY_PID_KI_RF` / `VELOCITY_PID_KD_RF` （右前，RIGHT_FRONT）
+	- `VELOCITY_PID_KP_LF` / `VELOCITY_PID_KI_LF` / `VELOCITY_PID_KD_LF` （左前，LEFT_FRONT）
+	- `VELOCITY_PID_KP_LR` / `VELOCITY_PID_KI_LR` / `VELOCITY_PID_KD_LR` （左后，LEFT_REAR）
+
+- 使用方法：
+	1. 直接在 `Core/Inc/config.h` 修改对应宏值后重新编译并刷入固件（见“构建（本地）”一节）。
+	2. 运行时也可以通过固件提供的 API 修改：固件中实现了 `Motor_SetPIDGain(motor_idx, kp, ki, kd)` 函数，可在调试交互或临时命令中调用以在线微调（当前固件未包含通用的 UART 调参命令，需按需添加）。
+
+- 观测：推荐使用固件在 `USART3` 输出的 VOFA justfloat 流（周期由 `VOFA_JUSTFLOAT_PERIOD_MS` 控制），帧内按电机索引发送每轮的“当前速度, 目标速度”，方便用主机端画图对比响应。
+
+- 调参建议（流程）：先单轮调速度环（KP、KD、再 KI），测试不同目标速度，再回到整车场景微调位置外环与航向环。
+

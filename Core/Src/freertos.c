@@ -73,9 +73,137 @@ static volatile uint8_t uart2_cmd_count;
 static MPU6050_Euler_t mpu_euler;
 static MPU6050_Quaternion_t mpu_quat;
 static uint8_t mpu_initialized = 0;
-static uint8_t mpu_correction_enabled = 0;
+/* 默认启用 MPU 航向修正 */
+static uint8_t mpu_correction_enabled = 1;
 
 static float base_speed_percent = 0.0f;
+
+/* 默认运动百分比（用于 LEFT/RIGHT/FORWARD/BACK 命令） */
+#define DEFAULT_STRAFE_PERCENT 30.0f
+#define DEFAULT_FORWARD_PERCENT 30.0f
+
+/* 当使用 Mecanum_SetMotion 设定分轮速度时置位，主循环在此模式下不覆盖各轮目标 */
+static uint8_t mecanum_mode_active = 0;
+/* 最近一次分轮目标（RR, LR, RF, LF） */
+static float mecanum_last_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+/* 先声明 Mecanum_SetMotion 以便下面的步骤函数调用 */
+static void Mecanum_SetMotion(float forward, float strafe, float rotation);
+
+/* 物理参数（用于格移动计算） */
+#define GRID_SIZE_M 0.30f
+#define WHEEL_DIAM_M 0.06f
+#define ENCODER_LINES 13
+#define ENCODER_QUADRATURE 4
+#define GEAR_RATIO 20
+
+/* 计算并执行按格侧移（阻塞）: steps >=1, dir = -1 左, +1 右 */
+static void Mecanum_StepStrafe(int steps, int dir)
+{
+  if (steps <= 0) return;
+
+  /* 计算所需编码器计数（每轮）: counts = steps * GRID * sqrt(2) / circumference * counts_per_wheel_rev */
+  float circumference = (float)M_PI * WHEEL_DIAM_M; /* m */
+  float wheel_travel = (float)steps * GRID_SIZE_M * 1.41421356237f; /* 因为45度滚轮，车体横移对应车轮走距离乘以 sqrt(2) */
+  float wheel_revs = wheel_travel / circumference;
+  float counts_per_wheel_rev = (float)(ENCODER_LINES * ENCODER_QUADRATURE * GEAR_RATIO);
+  int32_t target_counts = (int32_t)roundf(wheel_revs * counts_per_wheel_rev);
+
+  if (target_counts <= 0)
+  {
+    return;
+  }
+
+  /* 清空并准备累加编码器增量 */
+  int32_t acc[MOTOR_COUNT] = {0,0,0,0};
+  for (int i = 0; i < MOTOR_COUNT; i++)
+  {
+    /* 读取一次以更新内部 last_count（并忽略返回值） */
+    (void)Motor_GetEncoderDelta((MotorId_t)i);
+  }
+
+  /* 发起侧移命令，使用默认百分比速度 */
+  Mecanum_SetMotion(0.0f, dir * DEFAULT_STRAFE_PERCENT, 0.0f);
+
+  /* 轮询累加各轮绝对编码器增量，直到平均达到目标 */
+  while (1)
+  {
+    int32_t sum = 0;
+    for (int i = 0; i < MOTOR_COUNT; i++)
+    {
+      int32_t d = Motor_GetEncoderDelta((MotorId_t)i);
+      acc[i] += (d >= 0) ? d : -d;
+      sum += acc[i];
+    }
+
+    int32_t avg = sum / MOTOR_COUNT;
+    if (avg >= target_counts)
+    {
+      break;
+    }
+
+    osDelay(10);
+  }
+
+  /* 停止并退出 mecanum 模式 */
+  base_speed_percent = 0.0f;
+  mecanum_mode_active = 0;
+  Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
+  Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
+  Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
+  Motor_SetTargetPercent(MOTOR_LEFT_FRONT, 0.0f);
+  Motor_StopAll();
+  Motor_ResetPID(MOTOR_RIGHT_REAR);
+  Motor_ResetPID(MOTOR_LEFT_REAR);
+  Motor_ResetPID(MOTOR_RIGHT_FRONT);
+  Motor_ResetPID(MOTOR_LEFT_FRONT);
+}
+
+/* 计算并执行按格前进/后退（阻塞）: steps >=1, dir = +1 forward, -1 backward */
+static void Mecanum_StepForward(int steps, int dir)
+{
+  if (steps <= 0) return;
+
+  float circumference = (float)M_PI * WHEEL_DIAM_M; /* m */
+  float wheel_travel = (float)steps * GRID_SIZE_M; /* 前进不乘 sqrt(2) */
+  float wheel_revs = wheel_travel / circumference;
+  float counts_per_wheel_rev = (float)(ENCODER_LINES * ENCODER_QUADRATURE * GEAR_RATIO);
+  int32_t target_counts = (int32_t)roundf(wheel_revs * counts_per_wheel_rev);
+
+  if (target_counts <= 0) return;
+
+  int32_t acc[MOTOR_COUNT] = {0,0,0,0};
+  for (int i = 0; i < MOTOR_COUNT; i++) (void)Motor_GetEncoderDelta((MotorId_t)i);
+
+  /* 使用前进速度启动 */
+  Mecanum_SetMotion(dir * DEFAULT_FORWARD_PERCENT, 0.0f, 0.0f);
+
+  while (1)
+  {
+    int32_t sum = 0;
+    for (int i = 0; i < MOTOR_COUNT; i++)
+    {
+      int32_t d = Motor_GetEncoderDelta((MotorId_t)i);
+      acc[i] += (d >= 0) ? d : -d;
+      sum += acc[i];
+    }
+    int32_t avg = sum / MOTOR_COUNT;
+    if (avg >= target_counts) break;
+    osDelay(10);
+  }
+
+  base_speed_percent = 0.0f;
+  mecanum_mode_active = 0;
+  Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
+  Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
+  Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
+  Motor_SetTargetPercent(MOTOR_LEFT_FRONT, 0.0f);
+  Motor_StopAll();
+  Motor_ResetPID(MOTOR_RIGHT_REAR);
+  Motor_ResetPID(MOTOR_LEFT_REAR);
+  Motor_ResetPID(MOTOR_RIGHT_FRONT);
+  Motor_ResetPID(MOTOR_LEFT_FRONT);
+}
 
 // 航向控制 PID 参数
 typedef struct {
@@ -262,6 +390,19 @@ void StartTask03(void *argument)
   if (MPU6050_DMP_Init() == 0)
   {
     mpu_initialized = 1;
+    /* 如果默认启用航向修正，则以当前俯仰为目标并重置 PID */
+    if (mpu_correction_enabled)
+    {
+      if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
+      {
+        heading_pid.target_pitch = mpu_euler.pitch;
+      }
+      else
+      {
+        heading_pid.target_pitch = 0.0f;
+      }
+      HeadingPID_Reset(&heading_pid);
+    }
   }
 
   /* Infinite loop */
@@ -274,7 +415,7 @@ void StartTask03(void *argument)
     float heading_correction = 0.0f;
 
     // 航向控制循环（独立于电机 PID）
-    if (mpu_initialized && mpu_correction_enabled && (base_speed_percent != 0.0f))
+    if (mpu_initialized && mpu_correction_enabled && (base_speed_percent != 0.0f || mecanum_mode_active))
     {
       if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
       {
@@ -284,12 +425,20 @@ void StartTask03(void *argument)
     }
 
     // 应用基础速度 + 航向校正差速
-    if (base_speed_percent != 0.0f)
+    if (!mecanum_mode_active && (base_speed_percent != 0.0f))
     {
       Motor_SetTargetPercent(MOTOR_RIGHT_REAR, base_speed_percent + heading_correction);
       Motor_SetTargetPercent(MOTOR_LEFT_REAR, base_speed_percent - heading_correction);
       Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent + heading_correction);
       Motor_SetTargetPercent(MOTOR_LEFT_FRONT, base_speed_percent - heading_correction);
+    }
+    else if (mecanum_mode_active)
+    {
+      /* 在 mecanum 分轮模式下，基于记录的分轮目标应用航向校正 */
+      Motor_SetTargetPercent(MOTOR_RIGHT_REAR,  mecanum_last_targets[MOTOR_RIGHT_REAR]  + heading_correction);
+      Motor_SetTargetPercent(MOTOR_LEFT_REAR,   mecanum_last_targets[MOTOR_LEFT_REAR]   - heading_correction);
+      Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, mecanum_last_targets[MOTOR_RIGHT_FRONT] + heading_correction);
+      Motor_SetTargetPercent(MOTOR_LEFT_FRONT,  mecanum_last_targets[MOTOR_LEFT_FRONT]  - heading_correction);
     }
 
     // 电机 PID 控制循环
@@ -351,6 +500,13 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
   Motor_SetTargetPercent(MOTOR_LEFT_REAR, lr);
   Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, rf);
   Motor_SetTargetPercent(MOTOR_LEFT_FRONT, lf);
+
+  /* 记录分轮目标并进入 mecanum 模式，主循环将不再用统一 base_speed 覆盖 */
+  mecanum_last_targets[MOTOR_RIGHT_REAR]  = rr;
+  mecanum_last_targets[MOTOR_LEFT_REAR]   = lr;
+  mecanum_last_targets[MOTOR_RIGHT_FRONT] = rf;
+  mecanum_last_targets[MOTOR_LEFT_FRONT]  = lf;
+  mecanum_mode_active = 1;
 }
 
 static float HeadingPID_Update(HeadingPID_t *pid, float current_pitch, float dt)
@@ -485,21 +641,24 @@ static void UART2_HandleCommand(const char *command)
   long percent;
   char response[64];
 
-  while ((*cursor == ' ') || (*cursor == '\t'))
-  {
-    cursor++;
-  }
+  while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
 
+  /* MPU ON/OFF */
   if (strncmp(cursor, "MPU", 3) == 0)
   {
     cursor += 3;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
+    while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
     if (strncmp(cursor, "ON", 2) == 0)
     {
+      if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
+      {
+        heading_pid.target_pitch = mpu_euler.pitch;
+      }
+      else
+      {
+        heading_pid.target_pitch = 0.0f;
+      }
+      HeadingPID_Reset(&heading_pid);
       mpu_correction_enabled = 1;
       UART2_SendText("MPU ON\r\n");
       return;
@@ -518,195 +677,150 @@ static void UART2_HandleCommand(const char *command)
     }
   }
 
+  /* PID tuning: PID <kp> <ki> <kd> */
   if (strncmp(cursor, "PID", 3) == 0)
   {
     cursor += 3;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
+    while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    char *endp = NULL;
+    float kp = strtof(cursor, &endp);
+    if (endp == cursor) { UART2_SendText("ERR FORMAT\r\n"); return; }
+    cursor = endp; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    float ki = strtof(cursor, &endp);
+    if (endp == cursor) { UART2_SendText("ERR FORMAT\r\n"); return; }
+    cursor = endp; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    float kd = strtof(cursor, &endp);
+    if (endp == cursor) { UART2_SendText("ERR FORMAT\r\n"); return; }
+    while ((*endp == ' ') || (*endp == '\t')) endp++;
+    if (*endp != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
 
-    float kp, ki, kd;
-    if (sscanf(cursor, "%f %f %f", &kp, &ki, &kd) == 3)
-    {
-      heading_pid.kp = kp;
-      heading_pid.ki = ki;
-      heading_pid.kd = kd;
-      HeadingPID_Reset(&heading_pid);
-
-      char response[64];
-      snprintf(response, sizeof(response), "PID OK %.2f %.2f %.2f\r\n", kp, ki, kd);
-      UART2_SendText(response);
-      return;
-    }
-    else
-    {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
-    }
+    heading_pid.kp = kp;
+    heading_pid.ki = ki;
+    heading_pid.kd = kd;
+    HeadingPID_Reset(&heading_pid);
+    (void)snprintf(response, sizeof(response), "PID OK %.2f %.2f %.2f\r\n", kp, ki, kd);
+    UART2_SendText(response);
+    return;
   }
 
+  /* INV command removed */
+
+  /* LEFT <steps> */
   if (strncmp(cursor, "LEFT", 4) == 0)
   {
-    cursor += 4;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
+    cursor += 4; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    int steps = 1;
     if (*cursor != '\0')
     {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
+      char *endp = NULL; long v = strtol(cursor, &endp, 10);
+      if ((endp == cursor) || (v <= 0)) { UART2_SendText("ERR FORMAT\r\n"); return; }
+      steps = (int)v; while ((*endp == ' ') || (*endp == '\t')) endp++; if (*endp != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
     }
-
-    // 左平移：forward=0, strafe=-30, rotation=0
-    Mecanum_SetMotion(0.0f, -30.0f, 0.0f);
+    Mecanum_StepStrafe(steps, +1);
     UART2_SendText("LEFT OK\r\n");
+    UART2_SendText("STOPPED\r\n");
     return;
   }
 
+  /* RIGHT <steps> */
   if (strncmp(cursor, "RIGHT", 5) == 0)
   {
-    cursor += 5;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
+    cursor += 5; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    int steps_r = 1;
     if (*cursor != '\0')
     {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
+      char *endp2 = NULL; long vr = strtol(cursor, &endp2, 10);
+      if ((endp2 == cursor) || (vr <= 0)) { UART2_SendText("ERR FORMAT\r\n"); return; }
+      steps_r = (int)vr; while ((*endp2 == ' ') || (*endp2 == '\t')) endp2++; if (*endp2 != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
     }
-
-    // 右平移：forward=0, strafe=30, rotation=0
-    Mecanum_SetMotion(0.0f, 30.0f, 0.0f);
+    Mecanum_StepStrafe(steps_r, -1);
     UART2_SendText("RIGHT OK\r\n");
+    UART2_SendText("STOPPED\r\n");
     return;
   }
 
+  /* FORWARD <steps> */
   if (strncmp(cursor, "FORWARD", 7) == 0)
   {
-    cursor += 7;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
+    cursor += 7; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    int fsteps = 1;
     if (*cursor != '\0')
     {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
+      char *endp3 = NULL; long vf = strtol(cursor, &endp3, 10);
+      if ((endp3 == cursor) || (vf <= 0)) { UART2_SendText("ERR FORMAT\r\n"); return; }
+      fsteps = (int)vf; while ((*endp3 == ' ') || (*endp3 == '\t')) endp3++; if (*endp3 != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
     }
-
-    // 前进：forward=30, strafe=0, rotation=0
-    Mecanum_SetMotion(30.0f, 0.0f, 0.0f);
+    Mecanum_StepForward(fsteps, +1);
     UART2_SendText("FORWARD OK\r\n");
+    UART2_SendText("STOPPED\r\n");
     return;
   }
 
-  if (strncmp(cursor, "BACK", 4) == 0)
+  /* BACKWARD <steps>  (also accept BACK) */
+  if ((strncmp(cursor, "BACKWARD", 8) == 0) || (strncmp(cursor, "BACK", 4) == 0))
   {
-    cursor += 4;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
+    int offset = (strncmp(cursor, "BACKWARD", 8) == 0) ? 8 : 4;
+    cursor += offset; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    int bsteps = 1;
     if (*cursor != '\0')
     {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
+      char *endp4 = NULL; long vb = strtol(cursor, &endp4, 10);
+      if ((endp4 == cursor) || (vb <= 0)) { UART2_SendText("ERR FORMAT\r\n"); return; }
+      bsteps = (int)vb; while ((*endp4 == ' ') || (*endp4 == '\t')) endp4++; if (*endp4 != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
     }
-
-    // 后退：forward=-30, strafe=0, rotation=0
-    Mecanum_SetMotion(-30.0f, 0.0f, 0.0f);
+    Mecanum_StepForward(bsteps, -1);
     UART2_SendText("BACK OK\r\n");
+    UART2_SendText("STOPPED\r\n");
     return;
   }
 
+  /* STOP */
   if (strncmp(cursor, "STOP", 4) == 0)
   {
-    cursor += 4;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
-    if (*cursor != '\0')
-    {
-      UART2_SendText("ERR FORMAT\r\n");
-      return;
-    }
-
+    cursor += 4; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+    if (*cursor != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
     base_speed_percent = 0.0f;
+    /* 退出 mecanum 分轮模式，清空记录目标 */
+    mecanum_mode_active = 0;
+    mecanum_last_targets[MOTOR_RIGHT_REAR] = 0.0f;
+    mecanum_last_targets[MOTOR_LEFT_REAR] = 0.0f;
+    mecanum_last_targets[MOTOR_RIGHT_FRONT] = 0.0f;
+    mecanum_last_targets[MOTOR_LEFT_FRONT] = 0.0f;
     HeadingPID_Reset(&heading_pid);
+    Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
+    Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
+    Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
+    Motor_SetTargetPercent(MOTOR_LEFT_FRONT, 0.0f);
     Motor_StopAll();
-    Motor_ResetPID(MOTOR_RIGHT_REAR);
-    Motor_ResetPID(MOTOR_LEFT_REAR);
-    Motor_ResetPID(MOTOR_RIGHT_FRONT);
-    Motor_ResetPID(MOTOR_LEFT_FRONT);
-
-    UART2_SendText("STOP OK\r\n");
-    return;
+    Motor_ResetPID(MOTOR_RIGHT_REAR); Motor_ResetPID(MOTOR_LEFT_REAR);
+    Motor_ResetPID(MOTOR_RIGHT_FRONT); Motor_ResetPID(MOTOR_LEFT_FRONT);
+    UART2_SendText("STOP OK\r\n"); return;
   }
 
+  /* RUN <percent> */
   if (strncmp(cursor, "RUN", 3) != 0)
   {
-    UART2_SendText("ERR CMD\r\n");
-    return;
+    UART2_SendText("ERR CMD\r\n"); return;
   }
 
-  cursor += 3;
-  while ((*cursor == ' ') || (*cursor == '\t'))
-  {
-    cursor++;
-  }
-
-  if (*cursor == '\0')
-  {
-    UART2_SendText("ERR PARAM\r\n");
-    return;
-  }
-
+  cursor += 3; while ((*cursor == ' ') || (*cursor == '\t')) cursor++;
+  if (*cursor == '\0') { UART2_SendText("ERR PARAM\r\n"); return; }
   percent = strtol(cursor, &end_ptr, 10);
-  if ((end_ptr == cursor) || (percent < -100L) || (percent > 100L))
-  {
-    UART2_SendText("ERR RANGE\r\n");
-    return;
-  }
-
-  while ((*end_ptr == ' ') || (*end_ptr == '\t'))
-  {
-    end_ptr++;
-  }
-
-  if (*end_ptr != '\0')
-  {
-    UART2_SendText("ERR FORMAT\r\n");
-    return;
-  }
+  if ((end_ptr == cursor) || (percent < -100L) || (percent > 100L)) { UART2_SendText("ERR RANGE\r\n"); return; }
+  while ((*end_ptr == ' ') || (*end_ptr == '\t')) end_ptr++;
+  if (*end_ptr != '\0') { UART2_SendText("ERR FORMAT\r\n"); return; }
 
   if (percent == 0)
   {
-    base_speed_percent = 0.0f;
-    HeadingPID_Reset(&heading_pid);
-    Motor_StopAll();
-    Motor_ResetPID(MOTOR_RIGHT_REAR);
-    Motor_ResetPID(MOTOR_LEFT_REAR);
-    Motor_ResetPID(MOTOR_RIGHT_FRONT);
-    Motor_ResetPID(MOTOR_LEFT_FRONT);
+    base_speed_percent = 0.0f; HeadingPID_Reset(&heading_pid); Motor_StopAll();
+    Motor_ResetPID(MOTOR_RIGHT_REAR); Motor_ResetPID(MOTOR_LEFT_REAR);
+    Motor_ResetPID(MOTOR_RIGHT_FRONT); Motor_ResetPID(MOTOR_LEFT_FRONT);
   }
   else
   {
-    base_speed_percent = (float)percent;
-    HeadingPID_Reset(&heading_pid);
-    Motor_ResetPID(MOTOR_RIGHT_REAR);
-    Motor_ResetPID(MOTOR_LEFT_REAR);
-    Motor_ResetPID(MOTOR_RIGHT_FRONT);
-    Motor_ResetPID(MOTOR_LEFT_FRONT);
-
+    base_speed_percent = (float)percent; HeadingPID_Reset(&heading_pid);
+    Motor_ResetPID(MOTOR_RIGHT_REAR); Motor_ResetPID(MOTOR_LEFT_REAR);
+    Motor_ResetPID(MOTOR_RIGHT_FRONT); Motor_ResetPID(MOTOR_LEFT_FRONT);
     Motor_SetTargetPercent(MOTOR_RIGHT_REAR, base_speed_percent);
     Motor_SetTargetPercent(MOTOR_LEFT_REAR, base_speed_percent);
     Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent);

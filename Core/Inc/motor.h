@@ -41,6 +41,7 @@ void Motor_SetOutputLimit(MotorId_t motor, float min_output, float max_output);
 void Motor_ResetPID(MotorId_t motor);
 void Motor_UpdateControl(float dt_s);
 void Motor_SetRawPWM(MotorId_t motor, int32_t pwm);
+void Motor_SetEncoderInversion(MotorId_t motor, uint8_t inverted);
 int32_t Motor_GetEncoderDelta(MotorId_t motor);
 float Motor_GetFeedback(MotorId_t motor);
 const MotorPid_t *Motor_GetPID(MotorId_t motor);

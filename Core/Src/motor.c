@@ -30,6 +30,7 @@ typedef struct
 {
 	MotorPid_t pid;
 	uint8_t inverted;
+	uint8_t encoder_inverted;
 	uint32_t last_count;
 } MotorState_t;
 
@@ -118,7 +119,7 @@ static int32_t motor_read_delta(MotorId_t motor)
 		}
 	}
 
-	if (motor_state[motor].inverted)
+	if (motor_state[motor].encoder_inverted)
 	{
 		signed_diff = -signed_diff;
 	}
@@ -144,6 +145,7 @@ void Motor_Init(void)
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
 		motor_state[motor].inverted = 0;
+		motor_state[motor].encoder_inverted = 0;
 		motor_state[motor].last_count = 0;
 		motor_state[motor].pid.kp = 0.0f;
 		motor_state[motor].pid.ki = 0.0f;
@@ -273,6 +275,12 @@ void Motor_SetRawPWM(MotorId_t motor, int32_t pwm)
 	__HAL_TIM_SET_COMPARE(motor_hw[motor].pwm_timer, motor_hw[motor].pwm_channel, (uint32_t)pwm);
 }
 
+void Motor_SetEncoderInversion(MotorId_t motor, uint8_t inverted)
+{
+	motor = motor_valid_id(motor);
+	motor_state[motor].encoder_inverted = inverted ? 1U : 0U;
+}
+
 int32_t Motor_GetEncoderDelta(MotorId_t motor)
 {
 	motor = motor_valid_id(motor);
@@ -283,6 +291,7 @@ float Motor_GetFeedback(MotorId_t motor)
 {
 	motor = motor_valid_id(motor);
 	return motor_state[motor].pid.feedback;
+
 }
 
 const MotorPid_t *Motor_GetPID(MotorId_t motor)
@@ -301,6 +310,18 @@ void Motor_UpdateControl(float dt_s)
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
 		MotorPid_t *pid = &motor_state[motor].pid;
+		/* Safety: if target is zero, force output to 0 to avoid unexpected spin
+		   (protects against spurious encoder readings or wiring issues). */
+		if (pid->target == 0.0f)
+		{
+			pid->error = 0.0f;
+			pid->integral = 0.0f;
+			pid->last_error = 0.0f;
+			pid->output = 0.0f;
+			Motor_SetRawPWM(motor, 0);
+			continue;
+		}
+
 		float delta = (float)motor_read_delta(motor);
 
 		pid->feedback = delta / dt_s;

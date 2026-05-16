@@ -101,11 +101,17 @@ int main(void)
   MX_TIM5_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  /* UART self-test: send boot message so user can verify TX wiring/port */
+  HAL_UART_Transmit(&huart2, (uint8_t *)"BOOT\r\n", 6, 100);
   /* USER CODE BEGIN 2 */
   Motor_Init();
 
   Motor_SetInversion(MOTOR_LEFT_REAR, 1);
-  Motor_SetInversion(MOTOR_LEFT_FRONT, 1);
+  Motor_SetInversion(MOTOR_RIGHT_REAR, 1);
+
+  /* 如果编码器方向接反，直接在此处修正（0=RIGHT_REAR,1=LEFT_REAR,2=RIGHT_FRONT,3=LEFT_FRONT） */
+  Motor_SetEncoderInversion(MOTOR_LEFT_REAR, 1);
+  Motor_SetEncoderInversion(MOTOR_LEFT_FRONT, 1);
 
   Motor_SetPIDGain(MOTOR_RIGHT_REAR, 10.0f, 0.5f, 0.1f);
   Motor_SetPIDGain(MOTOR_LEFT_REAR, 10.0f, 0.5f, 0.1f);

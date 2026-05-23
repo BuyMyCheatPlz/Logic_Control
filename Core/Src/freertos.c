@@ -83,6 +83,8 @@ static float base_speed_percent = 0.0f;
 static uint8_t mecanum_mode_active = 0;
 /* 最近一次分轮目标（RR, LR, RF, LF） */
 static float mecanum_last_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
+static float heading_pitch_lpf = 0.0f;
+static uint8_t heading_pitch_lpf_initialized = 0;
 
 typedef enum
 {
@@ -319,6 +321,7 @@ static HeadingPID_t heading_pid = {
 // 函数声明
 static float HeadingPID_Update(HeadingPID_t *pid, float current_pitch, float dt);
 static void HeadingPID_Reset(HeadingPID_t *pid);
+static float LowPassFilter_Update(float previous, float input, float alpha);
 static void Mecanum_SetMotion(float forward, float strafe, float rotation);
 
 /* USER CODE END Variables */
@@ -483,10 +486,13 @@ void StartTask03(void *argument)
       if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
       {
         heading_pid.target_pitch = mpu_euler.pitch;
+        heading_pitch_lpf = mpu_euler.pitch;
+        heading_pitch_lpf_initialized = 1U;
       }
       else
       {
         heading_pid.target_pitch = 0.0f;
+        heading_pitch_lpf_initialized = 0U;
       }
       HeadingPID_Reset(&heading_pid);
     }
@@ -511,8 +517,18 @@ void StartTask03(void *argument)
     {
       if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
       {
+        if (!heading_pitch_lpf_initialized)
+        {
+          heading_pitch_lpf = mpu_euler.pitch;
+          heading_pitch_lpf_initialized = 1U;
+        }
+        else
+        {
+          heading_pitch_lpf = LowPassFilter_Update(heading_pitch_lpf, mpu_euler.pitch, HEADING_PITCH_LPF_ALPHA);
+        }
+
         // 使用独立的航向 PID 计算差速
-        heading_correction = HeadingPID_Update(&heading_pid, mpu_euler.pitch, dt_s);
+        heading_correction = HeadingPID_Update(&heading_pid, heading_pitch_lpf, dt_s);
       }
     }
 
@@ -693,6 +709,21 @@ static float HeadingPID_Update(HeadingPID_t *pid, float current_pitch, float dt)
   return output;
 }
 
+static float LowPassFilter_Update(float previous, float input, float alpha)
+{
+  if (alpha <= 0.0f)
+  {
+    return previous;
+  }
+
+  if (alpha >= 1.0f)
+  {
+    return input;
+  }
+
+  return previous + alpha * (input - previous);
+}
+
 static void HeadingPID_Reset(HeadingPID_t *pid)
 {
   pid->integral = 0.0f;
@@ -727,12 +758,15 @@ static void VOFA_SendJustFloat(void)
   vofa_frame[0] = Motor_GetFeedback(MOTOR_RIGHT_REAR);
   pid = Motor_GetPID(MOTOR_RIGHT_REAR);
   vofa_frame[1] = (pid != NULL) ? pid->target : 0.0f;
+
   vofa_frame[2] = Motor_GetFeedback(MOTOR_LEFT_REAR);
   pid = Motor_GetPID(MOTOR_LEFT_REAR);
   vofa_frame[3] = (pid != NULL) ? pid->target : 0.0f;
+
   vofa_frame[4] = Motor_GetFeedback(MOTOR_RIGHT_FRONT);
   pid = Motor_GetPID(MOTOR_RIGHT_FRONT);
   vofa_frame[5] = (pid != NULL) ? pid->target : 0.0f;
+
   vofa_frame[6] = Motor_GetFeedback(MOTOR_LEFT_FRONT);
   pid = Motor_GetPID(MOTOR_LEFT_FRONT);
   vofa_frame[7] = (pid != NULL) ? pid->target : 0.0f;

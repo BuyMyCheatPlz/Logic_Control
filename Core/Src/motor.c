@@ -34,6 +34,9 @@ typedef struct
 	uint32_t last_count;
 	int32_t position; /* cumulative encoder counts */
 	int32_t last_delta;
+	float feedback_raw;
+	float feedback_filtered;
+	uint8_t feedback_lpf_initialized;
 	/* position PID */
 	int32_t pos_target;
 	uint8_t pos_active;
@@ -57,6 +60,21 @@ static const MotorHardware_t motor_hw[MOTOR_COUNT] =
 };
 
 static MotorState_t motor_state[MOTOR_COUNT];
+
+static float motor_low_pass_update(float previous, float input, float alpha)
+{
+	if (alpha <= 0.0f)
+	{
+		return previous;
+	}
+
+	if (alpha >= 1.0f)
+	{
+		return input;
+	}
+
+	return previous + alpha * (input - previous);
+}
 
 static int32_t motor_clamp_int32(int32_t value, int32_t min_value, int32_t max_value)
 {
@@ -169,6 +187,9 @@ void Motor_Init(void)
 		motor_state[motor].pid.kd = kd_arr[motor];
 		motor_state[motor].pid.target = 0.0f;
 		motor_state[motor].pid.feedback = 0.0f;
+		motor_state[motor].feedback_raw = 0.0f;
+		motor_state[motor].feedback_filtered = 0.0f;
+		motor_state[motor].feedback_lpf_initialized = 0U;
 		motor_state[motor].pid.error = 0.0f;
 		motor_state[motor].pid.integral = 0.0f;
 		motor_state[motor].pid.last_error = 0.0f;
@@ -320,7 +341,7 @@ int32_t Motor_GetEncoderDelta(MotorId_t motor)
 float Motor_GetFeedback(MotorId_t motor)
 {
 	motor = motor_valid_id(motor);
-	return motor_state[motor].pid.feedback;
+	return motor_state[motor].feedback_raw;
 
 }
 
@@ -342,7 +363,19 @@ void Motor_UpdateControl(float dt_s)
 	{
 		int32_t d = motor_read_delta(motor);
 		motor_state[motor].position += d;
-		motor_state[motor].pid.feedback = (float)d / dt_s;
+		motor_state[motor].feedback_raw = (float)d / dt_s;
+		if (!motor_state[motor].feedback_lpf_initialized)
+		{
+			motor_state[motor].feedback_filtered = motor_state[motor].feedback_raw;
+			motor_state[motor].feedback_lpf_initialized = 1U;
+		}
+		else
+		{
+			motor_state[motor].feedback_filtered = motor_low_pass_update(motor_state[motor].feedback_filtered,
+																	 motor_state[motor].feedback_raw,
+																	 MOTOR_FEEDBACK_LPF_ALPHA);
+			}
+		motor_state[motor].pid.feedback = motor_state[motor].feedback_raw;
 	}
 
 	/* Position (outer) -> Velocity (inner) cascade and velocity PID */
@@ -400,7 +433,7 @@ void Motor_UpdateControl(float dt_s)
 		}
 
 		/* Velocity PID */
-		float error = effective_target - pid->feedback;
+		float error = effective_target - motor_state[motor].feedback_filtered;
 		pid->error = error;
 		pid->integral += error * dt_s;
 		float derivative = (error - pid->last_error) / dt_s;

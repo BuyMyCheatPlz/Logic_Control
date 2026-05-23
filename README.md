@@ -107,15 +107,16 @@ st-flash write Logic_Control.bin 0x8000000
 
 - VOFA / 观测：
 	- 固件通过 `USART3` 以 VOFA justfloat 格式周期性发送一个 8 浮点数帧（大小由 `VOFA_JUSTFLOAT_FLOATS` 与 `VOFA_JUSTFLOAT_PERIOD_MS` 控制）。帧内顺序为：
-		0: 右后（RIGHT_REAR）当前速度 (counts/s)
+		0: 右后（RIGHT_REAR）当前速度 (counts/s，原始反馈)
 		1: 右后目标速度 (counts/s)
-		2: 左后（LEFT_REAR）当前速度
+		2: 左后（LEFT_REAR）当前速度 (counts/s，原始反馈)
 		3: 左后目标速度
-		4: 右前（RIGHT_FRONT）当前速度
+		4: 右前（RIGHT_FRONT）当前速度 (counts/s，原始反馈)
 		5: 右前目标速度
-		6: 左前（LEFT_FRONT）当前速度
+		6: 左前（LEFT_FRONT）当前速度 (counts/s，原始反馈)
 		7: 左前目标速度
-	- 使用 VOFA 可以在主机端画图以观察每轮的跟踪性能与调参效果。
+- 使用 VOFA 可以在主机端画图以观察每轮的跟踪性能与调参效果。
+- 速度控制环会对四路编码器反馈做一阶低通滤波，航向控制会对 MPU6050 的 pitch 反馈做一阶低通滤波，滤波参数见 [Core/Inc/config.h](Core/Inc/config.h)。
 
 更多实现细节见 `Core/Src/freertos.c`（命令接收、解析与处理逻辑）。
 

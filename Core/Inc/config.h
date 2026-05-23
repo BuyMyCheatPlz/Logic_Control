@@ -24,6 +24,11 @@
 #define VOFA_JUSTFLOAT_PERIOD_MS   20U
 #define VOFA_JUSTFLOAT_FLOATS      8U
 
+/* Control-loop low-pass filters */
+/* 0.0f -> no update, 1.0f -> no smoothing. */
+#define MOTOR_FEEDBACK_LPF_ALPHA   0.20f
+#define HEADING_PITCH_LPF_ALPHA    0.20f
+
 /* Motor / control limits */
 #define MOTOR_PWM_PERIOD          999.0f
 /* Estimated max speed in encoder counts/second (adjust to your hardware) */

@@ -492,12 +492,14 @@ void StartTask03(void *argument)
     }
   }
 
-  /* Infinite loop */
+  /* Infinite loop - fixed 10ms periodic using vTaskDelayUntil */
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xPeriod = pdMS_TO_TICKS(10);
+  float dt_s = 0.01f;  /* fixed 10ms */
+
   for(;;)
   {
-    uint32_t current_tick = osKernelGetTickCount();
-    float dt_s = (float)(current_tick - last_tick) / 1000.0f;
-    last_tick = current_tick;
+    vTaskDelayUntil(&xLastWakeTime, xPeriod);
 
     (void)Motion_Tick();
 
@@ -530,32 +532,66 @@ void StartTask03(void *argument)
     }
 
     // 应用基础速度 + 航向校正差速
+    // 只在 RUN 指令首次进入时设置目标，避免每周期重置导致 PID 积分抖动
     if (!mecanum_mode_active && (base_speed_percent != 0.0f))
     {
-      Motor_SetTargetPercent(MOTOR_RIGHT_REAR, base_speed_percent);
-      Motor_SetTargetPercent(MOTOR_LEFT_REAR, base_speed_percent);
-      Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent);
-      Motor_SetTargetPercent(MOTOR_LEFT_FRONT, base_speed_percent);
+      static float last_applied_percent = 0.0f;
+      if (base_speed_percent != last_applied_percent)
+      {
+        Motor_SetTargetPercent(MOTOR_RIGHT_REAR, base_speed_percent);
+        Motor_SetTargetPercent(MOTOR_LEFT_REAR, base_speed_percent);
+        Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent);
+        Motor_SetTargetPercent(MOTOR_LEFT_FRONT, base_speed_percent);
+        last_applied_percent = base_speed_percent;
+      }
     }
     else if (mecanum_mode_active)
     {
       /* 在 mecanum 分轮模式下，基于记录的分轮目标应用航向校正 */
-      Motor_SetTargetPercent(MOTOR_RIGHT_REAR,  mecanum_last_targets[MOTOR_RIGHT_REAR]);
-      Motor_SetTargetPercent(MOTOR_LEFT_REAR,   mecanum_last_targets[MOTOR_LEFT_REAR]);
-      Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, mecanum_last_targets[MOTOR_RIGHT_FRONT]);
-      Motor_SetTargetPercent(MOTOR_LEFT_FRONT,  mecanum_last_targets[MOTOR_LEFT_FRONT]);
+      static float last_mecanum_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
+      static uint8_t mecanum_targets_dirty = 1;
+      if ((mecanum_last_targets[MOTOR_RIGHT_REAR]  != last_mecanum_targets[MOTOR_RIGHT_REAR]) ||
+          (mecanum_last_targets[MOTOR_LEFT_REAR]   != last_mecanum_targets[MOTOR_LEFT_REAR]) ||
+          (mecanum_last_targets[MOTOR_RIGHT_FRONT] != last_mecanum_targets[MOTOR_RIGHT_FRONT]) ||
+          (mecanum_last_targets[MOTOR_LEFT_FRONT]  != last_mecanum_targets[MOTOR_LEFT_FRONT]) ||
+          mecanum_targets_dirty)
+      {
+        Motor_SetTargetPercent(MOTOR_RIGHT_REAR,  mecanum_last_targets[MOTOR_RIGHT_REAR]);
+        Motor_SetTargetPercent(MOTOR_LEFT_REAR,   mecanum_last_targets[MOTOR_LEFT_REAR]);
+        Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, mecanum_last_targets[MOTOR_RIGHT_FRONT]);
+        Motor_SetTargetPercent(MOTOR_LEFT_FRONT,  mecanum_last_targets[MOTOR_LEFT_FRONT]);
+        last_mecanum_targets[MOTOR_RIGHT_REAR]  = mecanum_last_targets[MOTOR_RIGHT_REAR];
+        last_mecanum_targets[MOTOR_LEFT_REAR]   = mecanum_last_targets[MOTOR_LEFT_REAR];
+        last_mecanum_targets[MOTOR_RIGHT_FRONT] = mecanum_last_targets[MOTOR_RIGHT_FRONT];
+        last_mecanum_targets[MOTOR_LEFT_FRONT]  = mecanum_last_targets[MOTOR_LEFT_FRONT];
+        mecanum_targets_dirty = 0;
+      }
+    }
+    else
+    {
+      /* base_speed_percent == 0 且非 mecanum 模式，确保目标为零 */
+      static float last_zero_percent = -1.0f;
+      if (last_zero_percent != 0.0f)
+      {
+        Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
+        Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
+        Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
+        Motor_SetTargetPercent(MOTOR_LEFT_FRONT, 0.0f);
+        last_zero_percent = 0.0f;
+      }
     }
 
     // 电机 PID 控制循环
     Motor_UpdateControl(dt_s);
 
-    if ((current_tick - vofa_last_tick) >= VOFA_JUSTFLOAT_PERIOD_MS)
     {
-      VOFA_SendJustFloat();
-      vofa_last_tick = current_tick;
+      TickType_t now_tick = xTaskGetTickCount();
+      if ((now_tick - vofa_last_tick) >= pdMS_TO_TICKS(VOFA_JUSTFLOAT_PERIOD_MS))
+      {
+        VOFA_SendJustFloat();
+        vofa_last_tick = now_tick;
+      }
     }
-
-    osDelay(10);
   }
   /* USER CODE END StartTask03 */
 }
@@ -684,7 +720,8 @@ static void UART2_SendText(const char *text)
 
 static void VOFA_SendJustFloat(void)
 {
-  float vofa_frame[VOFA_JUSTFLOAT_FLOATS] = {0.0f};
+  /* VOFA+ JustFloat frame: N floats + 4-byte tail (0x00 0x00 0x80 0x7F) */
+  float vofa_frame[VOFA_JUSTFLOAT_FLOATS + 1U] = {0.0f};
   const MotorPid_t *pid = NULL;
 
   vofa_frame[0] = Motor_GetFeedback(MOTOR_RIGHT_REAR);
@@ -700,7 +737,17 @@ static void VOFA_SendJustFloat(void)
   pid = Motor_GetPID(MOTOR_LEFT_FRONT);
   vofa_frame[7] = (pid != NULL) ? pid->target : 0.0f;
 
-  (void)HAL_UART_Transmit(&huart3, (uint8_t *)vofa_frame, (uint16_t)sizeof(vofa_frame), 10U);
+  /* JustFloat frame tail: IEEE 754 representation that VOFA+ recognizes as frame end */
+  {
+    uint8_t *tail = (uint8_t *)&vofa_frame[VOFA_JUSTFLOAT_FLOATS];
+    tail[0] = 0x00U;
+    tail[1] = 0x00U;
+    tail[2] = 0x80U;
+    tail[3] = 0x7FU;
+  }
+
+  (void)HAL_UART_Transmit(&huart3, (uint8_t *)vofa_frame,
+                          (uint16_t)((VOFA_JUSTFLOAT_FLOATS + 1U) * sizeof(float)), 10U);
 }
 
 static void UART2_EnqueueCommandFromISR(const char *command)

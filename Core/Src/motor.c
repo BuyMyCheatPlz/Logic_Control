@@ -373,21 +373,23 @@ void Motor_UpdateControl(float dt_s)
 			pid->target = desired;
 		}
 
+		/* Compute effective target = base target + bias (no accumulation across cycles) */
+		float effective_target = pid->target;
 		if (motor_state[motor].target_bias_counts_per_sec != 0.0f)
 		{
-			pid->target += motor_state[motor].target_bias_counts_per_sec;
-			if (pid->target > MOTOR_MAX_SPEED_COUNTS_PER_SEC)
+			effective_target += motor_state[motor].target_bias_counts_per_sec;
+			if (effective_target > MOTOR_MAX_SPEED_COUNTS_PER_SEC)
 			{
-				pid->target = MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+				effective_target = MOTOR_MAX_SPEED_COUNTS_PER_SEC;
 			}
-			else if (pid->target < -MOTOR_MAX_SPEED_COUNTS_PER_SEC)
+			else if (effective_target < -MOTOR_MAX_SPEED_COUNTS_PER_SEC)
 			{
-				pid->target = -MOTOR_MAX_SPEED_COUNTS_PER_SEC;
+				effective_target = -MOTOR_MAX_SPEED_COUNTS_PER_SEC;
 			}
 		}
 
 		/* Safety: if velocity target is zero and no position active, force outputs 0 */
-		if ((pid->target == 0.0f) && (motor_state[motor].pos_active == 0))
+		if ((pid->target == 0.0f) && (motor_state[motor].pos_active == 0) && (motor_state[motor].target_bias_counts_per_sec == 0.0f))
 		{
 			pid->error = 0.0f;
 			pid->integral = 0.0f;
@@ -398,7 +400,7 @@ void Motor_UpdateControl(float dt_s)
 		}
 
 		/* Velocity PID */
-		float error = pid->target - pid->feedback;
+		float error = effective_target - pid->feedback;
 		pid->error = error;
 		pid->integral += error * dt_s;
 		float derivative = (error - pid->last_error) / dt_s;

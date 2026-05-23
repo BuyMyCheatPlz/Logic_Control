@@ -113,10 +113,6 @@ int main(void)
   Motor_SetEncoderInversion(MOTOR_LEFT_REAR, 1);
   Motor_SetEncoderInversion(MOTOR_LEFT_FRONT, 1);
 
-  Motor_SetPIDGain(MOTOR_RIGHT_REAR, 10.0f, 0.5f, 0.1f);
-  Motor_SetPIDGain(MOTOR_LEFT_REAR, 10.0f, 0.5f, 0.1f);
-  Motor_SetPIDGain(MOTOR_RIGHT_FRONT, 10.0f, 0.5f, 0.1f);
-  Motor_SetPIDGain(MOTOR_LEFT_FRONT, 10.0f, 0.5f, 0.1f);
 
   /* USER CODE END 2 */
 

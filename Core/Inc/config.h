@@ -34,17 +34,17 @@
  * Wheel naming: RIGHT_REAR (RR), RIGHT_FRONT (RF), LEFT_FRONT (LF), LEFT_REAR (LR)
  */
 /* KP */
-#define VELOCITY_PID_KP_RR         0.5f
-#define VELOCITY_PID_KP_RF         0.5f
+#define VELOCITY_PID_KP_RR         0.8f
+#define VELOCITY_PID_KP_RF         0.8f
 #define VELOCITY_PID_KP_LF         0.5f
 #define VELOCITY_PID_KP_LR         0.5f
 /* KI */
-#define VELOCITY_PID_KI_RR         0.05f
+#define VELOCITY_PID_KI_RR         0.0f
 #define VELOCITY_PID_KI_RF         0.05f
 #define VELOCITY_PID_KI_LF         0.05f
 #define VELOCITY_PID_KI_LR         0.05f
 /* KD */
-#define VELOCITY_PID_KD_RR         0.0f
+#define VELOCITY_PID_KD_RR         0.5f
 #define VELOCITY_PID_KD_RF         0.0f
 #define VELOCITY_PID_KD_LF         0.0f
 #define VELOCITY_PID_KD_LR         0.0f

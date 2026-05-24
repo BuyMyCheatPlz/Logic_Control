@@ -36,6 +36,7 @@ typedef struct
 	int32_t last_delta;
 	float feedback_raw;
 	float feedback_filtered;
+		float feedback_last_filtered;
 	uint8_t feedback_lpf_initialized;
 	/* position PID */
 	int32_t pos_target;
@@ -189,6 +190,7 @@ void Motor_Init(void)
 		motor_state[motor].pid.feedback = 0.0f;
 		motor_state[motor].feedback_raw = 0.0f;
 		motor_state[motor].feedback_filtered = 0.0f;
+		motor_state[motor].feedback_last_filtered = 0.0f;
 		motor_state[motor].feedback_lpf_initialized = 0U;
 		motor_state[motor].pid.error = 0.0f;
 		motor_state[motor].pid.integral = 0.0f;
@@ -297,6 +299,7 @@ void Motor_ResetPID(MotorId_t motor)
 	motor_state[motor].pid.integral = 0.0f;
 	motor_state[motor].pid.last_error = 0.0f;
 	motor_state[motor].pid.output = 0.0f;
+	motor_state[motor].feedback_last_filtered = motor_state[motor].feedback_filtered;
 }
 
 void Motor_SetRawPWM(MotorId_t motor, int32_t pwm)
@@ -367,13 +370,16 @@ void Motor_UpdateControl(float dt_s)
 		if (!motor_state[motor].feedback_lpf_initialized)
 		{
 			motor_state[motor].feedback_filtered = motor_state[motor].feedback_raw;
+			motor_state[motor].feedback_last_filtered = motor_state[motor].feedback_filtered;
 			motor_state[motor].feedback_lpf_initialized = 1U;
 		}
 		else
 		{
+			float previous_feedback_filtered = motor_state[motor].feedback_filtered;
 			motor_state[motor].feedback_filtered = motor_low_pass_update(motor_state[motor].feedback_filtered,
 																	 motor_state[motor].feedback_raw,
 																	 MOTOR_FEEDBACK_LPF_ALPHA);
+			motor_state[motor].feedback_last_filtered = previous_feedback_filtered;
 			}
 		motor_state[motor].pid.feedback = motor_state[motor].feedback_raw;
 	}
@@ -436,11 +442,12 @@ void Motor_UpdateControl(float dt_s)
 		float error = effective_target - motor_state[motor].feedback_filtered;
 		pid->error = error;
 		pid->integral += error * dt_s;
-		float derivative = (error - pid->last_error) / dt_s;
+		float derivative = -(motor_state[motor].feedback_filtered - motor_state[motor].feedback_last_filtered) / dt_s;
 		float output = (pid->kp * error) + (pid->ki * pid->integral) + (pid->kd * derivative);
 		output = motor_clamp_float(output, pid->output_min, pid->output_max);
 		pid->output = output;
 		pid->last_error = error;
+		motor_state[motor].feedback_last_filtered = motor_state[motor].feedback_filtered;
 
 		Motor_SetRawPWM(motor, (int32_t)output);
 	}
@@ -477,6 +484,7 @@ void Motor_ClearPositionTarget(MotorId_t motor)
 	motor_state[motor].pid.error = 0.0f;
 	motor_state[motor].pid.last_error = 0.0f;
 	motor_state[motor].pid.output = 0.0f;
+	motor_state[motor].feedback_last_filtered = motor_state[motor].feedback_filtered;
 	Motor_SetRawPWM(motor, 0);
 }
 

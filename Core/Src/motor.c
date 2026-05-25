@@ -66,6 +66,7 @@ static MotorState_t motor_state[MOTOR_COUNT];
 #define MOTOR_PWM_DEADBAND_TICKS 20
 /* Suppress derivative noise from quantized encoder speed feedback */
 #define MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND 5.0f
+#define MOTOR_PID_EPSILON 1.0e-6f
 
 static float motor_low_pass_update(float previous, float input, float alpha)
 {
@@ -412,7 +413,7 @@ void Motor_UpdateControl(float dt_s)
 
 			/* anti-windup and integral update: integrate only when not saturating,
 			 * or when error drives output back from saturation */
-			if (motor_state[motor].pos_ki != 0.0f)
+			if (fabsf(motor_state[motor].pos_ki) > MOTOR_PID_EPSILON)
 			{
 				float candidate_i = motor_state[motor].pos_integral + (pos_err * dt_s);
 				float i_limit = motor_state[motor].pos_output_limit / fabsf(motor_state[motor].pos_ki);
@@ -486,7 +487,7 @@ void Motor_UpdateControl(float dt_s)
 		d_term = motor_clamp_float(d_term, -max_abs_output, max_abs_output);
 
 		/* anti-windup for velocity integral */
-		if (pid->ki != 0.0f)
+		if (fabsf(pid->ki) > MOTOR_PID_EPSILON)
 		{
 			float candidate_i = pid->integral + (error * dt_s);
 			float i_limit = max_abs_output / fabsf(pid->ki);

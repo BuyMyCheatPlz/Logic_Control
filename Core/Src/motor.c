@@ -65,7 +65,7 @@ static MotorState_t motor_state[MOTOR_COUNT];
 /* Suppress near-zero command chattering around direction switching */
 #define MOTOR_PWM_DEADBAND_TICKS 20
 /* Suppress derivative noise from quantized encoder speed feedback.
- * Unit is counts/second (same as feedback_filtered delta input). */
+ * Unit is delta of feedback (counts/second) between adjacent control ticks. */
 #define MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND 5.0f
 #define MOTOR_PID_EPSILON 1.0e-4f
 
@@ -417,14 +417,23 @@ void Motor_UpdateControl(float dt_s)
 			if (fabsf(motor_state[motor].pos_ki) > MOTOR_PID_EPSILON)
 			{
 				float candidate_i = motor_state[motor].pos_integral + (pos_err * dt_s);
-				float i_limit = motor_state[motor].pos_output_limit / fabsf(motor_state[motor].pos_ki);
+				float pos_output_limit_abs = fabsf(motor_state[motor].pos_output_limit);
+				float i_limit = 0.0f;
+				if (pos_output_limit_abs <= MOTOR_PID_EPSILON)
+				{
+					i_limit = 0.0f;
+				}
+				else
+				{
+					i_limit = pos_output_limit_abs / fabsf(motor_state[motor].pos_ki);
+				}
 
 				desired_unsat = pos_p + (motor_state[motor].pos_ki * candidate_i) + pos_d;
-				desired_sat = motor_clamp_float(desired_unsat, -motor_state[motor].pos_output_limit, motor_state[motor].pos_output_limit);
+				desired_sat = motor_clamp_float(desired_unsat, -pos_output_limit_abs, pos_output_limit_abs);
 
-				if ((desired_unsat == desired_sat) ||
-					((desired_sat >= motor_state[motor].pos_output_limit) && (pos_err < 0.0f)) ||
-					((desired_sat <= -motor_state[motor].pos_output_limit) && (pos_err > 0.0f)))
+				if ((fabsf(desired_unsat - desired_sat) <= MOTOR_PID_EPSILON) ||
+					((desired_sat >= pos_output_limit_abs) && (pos_err < 0.0f)) ||
+					((desired_sat <= -pos_output_limit_abs) && (pos_err > 0.0f)))
 				{
 					pos_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
 				}
@@ -490,14 +499,23 @@ void Motor_UpdateControl(float dt_s)
 		if (fabsf(pid->ki) > MOTOR_PID_EPSILON)
 		{
 			float candidate_i = pid->integral + (error * dt_s);
-			float i_limit = max_abs_output / fabsf(pid->ki);
+			float i_limit = 0.0f;
 			float unsat_with_candidate = 0.0f;
 			float sat_with_candidate = 0.0f;
+
+			if (max_abs_output <= MOTOR_PID_EPSILON)
+			{
+				i_limit = 0.0f;
+			}
+			else
+			{
+				i_limit = max_abs_output / fabsf(pid->ki);
+			}
 
 			unsat_with_candidate = p_term + (pid->ki * candidate_i) + d_term;
 			sat_with_candidate = motor_clamp_float(unsat_with_candidate, pid->output_min, pid->output_max);
 
-			if ((unsat_with_candidate == sat_with_candidate) ||
+			if ((fabsf(unsat_with_candidate - sat_with_candidate) <= MOTOR_PID_EPSILON) ||
 				((sat_with_candidate >= pid->output_max) && (error < 0.0f)) ||
 				((sat_with_candidate <= pid->output_min) && (error > 0.0f)))
 			{

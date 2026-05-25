@@ -8,6 +8,7 @@
 /* USER CODE END Header */
 
 #include "motor.h"
+#include <math.h>
 
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim2;
@@ -61,6 +62,10 @@ static const MotorHardware_t motor_hw[MOTOR_COUNT] =
 };
 
 static MotorState_t motor_state[MOTOR_COUNT];
+/* Suppress near-zero command chattering around direction switching */
+#define MOTOR_PWM_DEADBAND_TICKS 20
+/* Suppress derivative noise from quantized encoder speed feedback */
+#define MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND 5.0f
 
 static float motor_low_pass_update(float previous, float input, float alpha)
 {
@@ -307,6 +312,10 @@ void Motor_SetRawPWM(MotorId_t motor, int32_t pwm)
 	motor = motor_valid_id(motor);
 
 	pwm = motor_clamp_int32(pwm, -(int32_t)MOTOR_PWM_PERIOD, (int32_t)MOTOR_PWM_PERIOD);
+	if ((pwm <= MOTOR_PWM_DEADBAND_TICKS) && (pwm >= -MOTOR_PWM_DEADBAND_TICKS))
+	{
+		pwm = 0;
+	}
 
 	if (pwm == 0)
 	{
@@ -394,16 +403,36 @@ void Motor_UpdateControl(float dt_s)
 		{
 			float pos_err = (float)(motor_state[motor].pos_target - motor_state[motor].position);
 			float pos_deriv = (pos_err - motor_state[motor].pos_last_error) / dt_s;
-			float desired = (motor_state[motor].pos_kp * pos_err) + (motor_state[motor].pos_ki * motor_state[motor].pos_integral) + (motor_state[motor].pos_kd * pos_deriv);
+			float pos_p = motor_state[motor].pos_kp * pos_err;
+			float pos_d = motor_state[motor].pos_kd * pos_deriv;
+			float pos_i = motor_state[motor].pos_integral;
+			float desired = 0.0f;
+			float desired_unsat = 0.0f;
+			float desired_sat = 0.0f;
 
-			/* anti-windup and integral update: only integrate if not saturated */
-			float unclamped = desired;
-			if (unclamped > motor_state[motor].pos_output_limit) unclamped = motor_state[motor].pos_output_limit;
-			if (unclamped < -motor_state[motor].pos_output_limit) unclamped = -motor_state[motor].pos_output_limit;
+			/* anti-windup and integral update: integrate only when not saturating,
+			 * or when error drives output back from saturation */
+			if (motor_state[motor].pos_ki != 0.0f)
+			{
+				float candidate_i = motor_state[motor].pos_integral + (pos_err * dt_s);
+				float i_limit = motor_state[motor].pos_output_limit / fabsf(motor_state[motor].pos_ki);
+				candidate_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
 
-			/* update integral using pos_err */
-			motor_state[motor].pos_integral += pos_err * dt_s;
+				desired_unsat = pos_p + (motor_state[motor].pos_ki * candidate_i) + pos_d;
+				desired_sat = motor_clamp_float(desired_unsat, -motor_state[motor].pos_output_limit, motor_state[motor].pos_output_limit);
+
+				if ((desired_unsat == desired_sat) ||
+					((desired_sat >= motor_state[motor].pos_output_limit) && (pos_err < 0.0f)) ||
+					((desired_sat <= -motor_state[motor].pos_output_limit) && (pos_err > 0.0f)))
+				{
+					pos_i = candidate_i;
+				}
+			}
+
+			motor_state[motor].pos_integral = pos_i;
 			motor_state[motor].pos_last_error = pos_err;
+			desired = pos_p + (motor_state[motor].pos_ki * motor_state[motor].pos_integral) + pos_d;
+			desired = motor_clamp_float(desired, -motor_state[motor].pos_output_limit, motor_state[motor].pos_output_limit);
 
 			/* set inner-loop velocity target (counts/sec) */
 			/* clamp to max motor speed */
@@ -441,9 +470,42 @@ void Motor_UpdateControl(float dt_s)
 		/* Velocity PID */
 		float error = effective_target - motor_state[motor].feedback_filtered;
 		pid->error = error;
-		pid->integral += error * dt_s;
-		float derivative = -(motor_state[motor].feedback_filtered - motor_state[motor].feedback_last_filtered) / dt_s;
-		float output = (pid->kp * error) + (pid->ki * pid->integral) + (pid->kd * derivative);
+		float p_term = pid->kp * error;
+		float feedback_delta = motor_state[motor].feedback_filtered - motor_state[motor].feedback_last_filtered;
+		float derivative = 0.0f;
+		float d_term = 0.0f;
+		float output = 0.0f;
+		float max_abs_output = (fabsf(pid->output_max) > fabsf(pid->output_min)) ? fabsf(pid->output_max) : fabsf(pid->output_min);
+
+		/* D-term noise suppression around quantized encoder feedback */
+		if ((feedback_delta > MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND) || (feedback_delta < -MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND))
+		{
+			derivative = -(feedback_delta / dt_s);
+		}
+		d_term = pid->kd * derivative;
+		d_term = motor_clamp_float(d_term, -max_abs_output, max_abs_output);
+
+		/* anti-windup for velocity integral */
+		if (pid->ki != 0.0f)
+		{
+			float candidate_i = pid->integral + (error * dt_s);
+			float i_limit = max_abs_output / fabsf(pid->ki);
+			float unsat_with_candidate = 0.0f;
+			float sat_with_candidate = 0.0f;
+
+			candidate_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
+			unsat_with_candidate = p_term + (pid->ki * candidate_i) + d_term;
+			sat_with_candidate = motor_clamp_float(unsat_with_candidate, pid->output_min, pid->output_max);
+
+			if ((unsat_with_candidate == sat_with_candidate) ||
+				((sat_with_candidate >= pid->output_max) && (error < 0.0f)) ||
+				((sat_with_candidate <= pid->output_min) && (error > 0.0f)))
+			{
+				pid->integral = candidate_i;
+			}
+		}
+
+		output = p_term + (pid->ki * pid->integral) + d_term;
 		output = motor_clamp_float(output, pid->output_min, pid->output_max);
 		pid->output = output;
 		pid->last_error = error;

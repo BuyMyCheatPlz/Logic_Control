@@ -64,9 +64,10 @@ static const MotorHardware_t motor_hw[MOTOR_COUNT] =
 static MotorState_t motor_state[MOTOR_COUNT];
 /* Suppress near-zero command chattering around direction switching */
 #define MOTOR_PWM_DEADBAND_TICKS 20
-/* Suppress derivative noise from quantized encoder speed feedback */
+/* Suppress derivative noise from quantized encoder speed feedback.
+ * Unit is counts/second (same as feedback_filtered delta input). */
 #define MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND 5.0f
-#define MOTOR_PID_EPSILON 1.0e-6f
+#define MOTOR_PID_EPSILON 1.0e-4f
 
 static float motor_low_pass_update(float previous, float input, float alpha)
 {
@@ -417,7 +418,6 @@ void Motor_UpdateControl(float dt_s)
 			{
 				float candidate_i = motor_state[motor].pos_integral + (pos_err * dt_s);
 				float i_limit = motor_state[motor].pos_output_limit / fabsf(motor_state[motor].pos_ki);
-				candidate_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
 
 				desired_unsat = pos_p + (motor_state[motor].pos_ki * candidate_i) + pos_d;
 				desired_sat = motor_clamp_float(desired_unsat, -motor_state[motor].pos_output_limit, motor_state[motor].pos_output_limit);
@@ -426,7 +426,7 @@ void Motor_UpdateControl(float dt_s)
 					((desired_sat >= motor_state[motor].pos_output_limit) && (pos_err < 0.0f)) ||
 					((desired_sat <= -motor_state[motor].pos_output_limit) && (pos_err > 0.0f)))
 				{
-					pos_i = candidate_i;
+					pos_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
 				}
 			}
 
@@ -476,7 +476,7 @@ void Motor_UpdateControl(float dt_s)
 		float derivative = 0.0f;
 		float d_term = 0.0f;
 		float output = 0.0f;
-		float max_abs_output = (fabsf(pid->output_max) > fabsf(pid->output_min)) ? fabsf(pid->output_max) : fabsf(pid->output_min);
+		float max_abs_output = fmaxf(fabsf(pid->output_max), fabsf(pid->output_min));
 
 		/* D-term noise suppression around quantized encoder feedback */
 		if ((feedback_delta > MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND) || (feedback_delta < -MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND))
@@ -494,7 +494,6 @@ void Motor_UpdateControl(float dt_s)
 			float unsat_with_candidate = 0.0f;
 			float sat_with_candidate = 0.0f;
 
-			candidate_i = motor_clamp_float(candidate_i, -i_limit, i_limit);
 			unsat_with_candidate = p_term + (pid->ki * candidate_i) + d_term;
 			sat_with_candidate = motor_clamp_float(unsat_with_candidate, pid->output_min, pid->output_max);
 
@@ -502,7 +501,7 @@ void Motor_UpdateControl(float dt_s)
 				((sat_with_candidate >= pid->output_max) && (error < 0.0f)) ||
 				((sat_with_candidate <= pid->output_min) && (error > 0.0f)))
 			{
-				pid->integral = candidate_i;
+				pid->integral = motor_clamp_float(candidate_i, -i_limit, i_limit);
 			}
 		}
 

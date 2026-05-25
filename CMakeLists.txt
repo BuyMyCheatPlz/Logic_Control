@@ -101,13 +101,22 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # Linker options
+set(MAYBE_NANO_SPECS_FLAG "-specs=nano.specs")
+if("${CMAKE_EXE_LINKER_FLAGS}" MATCHES "specs=nano\\.specs")
+    set(MAYBE_NANO_SPECS_FLAG "")
+endif()
+set(MAYBE_LINKER_SCRIPT_FLAG "-T${CMAKE_SOURCE_DIR}/STM32F407XX_FLASH.ld")
+if("${CMAKE_EXE_LINKER_FLAGS}" MATCHES "STM32F407XX_FLASH\\.ld")
+    set(MAYBE_LINKER_SCRIPT_FLAG "")
+endif()
+
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -T${CMAKE_SOURCE_DIR}/STM32F407XX_FLASH.ld
+    ${MAYBE_LINKER_SCRIPT_FLAG}
     -mcpu=cortex-m4
     -mthumb
     -mfpu=fpv4-sp-d16
     -mfloat-abi=hard
-    -specs=nano.specs
+    ${MAYBE_NANO_SPECS_FLAG}
     -Wl,-Map=${PROJECT_NAME}.map,--cref
     -Wl,--gc-sections
 )

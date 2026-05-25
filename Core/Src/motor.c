@@ -489,12 +489,11 @@ void Motor_UpdateControl(float dt_s)
 		float max_abs_output = fminf(fabsf(pid->output_max), fabsf(pid->output_min));
 
 		/* D-term noise suppression around quantized encoder feedback */
-		if ((feedback_delta > MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND) || (feedback_delta < -MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND))
+		if (fabsf(feedback_delta) > MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND)
 		{
 			derivative = -(feedback_delta / dt_s);
 		}
 		d_term = pid->kd * derivative;
-		d_term = motor_clamp_float(d_term, -max_abs_output, max_abs_output);
 
 		/* anti-windup for velocity integral */
 		if (fabsf(pid->ki) > MOTOR_PID_EPSILON)

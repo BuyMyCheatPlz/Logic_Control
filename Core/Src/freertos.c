@@ -32,7 +32,6 @@
 #include <math.h>
 
 #include "motor.h"
-#include "mpu6050.h"
 
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
@@ -70,12 +69,6 @@ static char uart2_cmd_queue[UART2_CMD_QUEUE_DEPTH][UART2_CMD_MAX_LEN];
 static volatile uint8_t uart2_cmd_head;
 static volatile uint8_t uart2_cmd_tail;
 static volatile uint8_t uart2_cmd_count;
-
-static MPU6050_Euler_t mpu_euler;
-static MPU6050_Quaternion_t mpu_quat;
-static uint8_t mpu_initialized = 0;
-/* 默认启用 MPU 航向修正 */
-static uint8_t mpu_correction_enabled = 1;
 
 static float base_speed_percent = 0.0f;
 
@@ -194,6 +187,13 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
 
+  /* Apply command-level output limits for position motions so PWM cannot exceed configured percent */
+  float pwm_limit = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
+  Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit, pwm_limit);
+  Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit, pwm_limit);
+  Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -pwm_limit, pwm_limit);
+  Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -pwm_limit, pwm_limit);
+
   if (request->kind == MOTION_KIND_STRAFE)
   {
     float rr = 0.0f - (float)request->dir * DEFAULT_STRAFE_PERCENT;
@@ -258,6 +258,11 @@ static uint8_t Motion_Tick(void)
   Motor_ResetPID(MOTOR_LEFT_REAR);
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
+  /* Restore full PWM output limits after motion stop */
+  Motor_SetOutputLimit(MOTOR_RIGHT_REAR, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+  Motor_SetOutputLimit(MOTOR_LEFT_REAR,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+  Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+  Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
   motion_active = 0U;
   UART2_SendText("STOPPED\r\n");
   return 1U;
@@ -295,33 +300,7 @@ static void Mecanum_StepForward(int steps, int dir)
   (void)MotionQueue_Enqueue(&request);
 }
 
-// 航向控制 PID 参数
-typedef struct {
-  float kp;
-  float ki;
-  float kd;
-  float target_pitch;
-  float integral;
-  float last_error;
-  float output;
-  float output_limit;
-} HeadingPID_t;
-
-static HeadingPID_t heading_pid = {
-  .kp = HEADING_PID_KP,
-  .ki = HEADING_PID_KI,
-  .kd = HEADING_PID_KD,
-  .target_pitch = 0.0f,
-  .integral = 0.0f,
-  .last_error = 0.0f,
-  .output = 0.0f,
-  .output_limit = HEADING_PID_OUTPUT_LIMIT
-};
-
-// 函数声明
-static float HeadingPID_Update(HeadingPID_t *pid, float current_pitch, float dt);
-static void HeadingPID_Reset(HeadingPID_t *pid);
-static float LowPassFilter_Update(float previous, float input, float alpha);
+// 航向 PID 已移除；保留 Mecanum_SetMotion 声明
 static void Mecanum_SetMotion(float forward, float strafe, float rotation);
 
 /* USER CODE END Variables */
@@ -477,26 +456,7 @@ void StartTask03(void *argument)
   uint32_t last_tick = osKernelGetTickCount();
   uint32_t vofa_last_tick = last_tick;
 
-  if (MPU6050_DMP_Init() == 0)
-  {
-    mpu_initialized = 1;
-    /* 如果默认启用航向修正，则以当前俯仰为目标并重置 PID */
-    if (mpu_correction_enabled)
-    {
-      if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
-      {
-        heading_pid.target_pitch = mpu_euler.pitch;
-        heading_pitch_lpf = mpu_euler.pitch;
-        heading_pitch_lpf_initialized = 1U;
-      }
-      else
-      {
-        heading_pid.target_pitch = 0.0f;
-        heading_pitch_lpf_initialized = 0U;
-      }
-      HeadingPID_Reset(&heading_pid);
-    }
-  }
+  /* MPU6050 removed: skip sensor initialization */
 
   /* Infinite loop - fixed 10ms periodic using vTaskDelayUntil */
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -512,25 +472,9 @@ void StartTask03(void *argument)
     float heading_correction = 0.0f;
     uint8_t motion_busy = (base_speed_percent != 0.0f) || mecanum_mode_active || motion_active || Motor_HasActivePositionTarget();
 
-    // 航向控制循环（独立于电机 PID）
-    if (mpu_initialized && mpu_correction_enabled && motion_busy)
-    {
-      if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
-      {
-        if (!heading_pitch_lpf_initialized)
-        {
-          heading_pitch_lpf = mpu_euler.pitch;
-          heading_pitch_lpf_initialized = 1U;
-        }
-        else
-        {
-          heading_pitch_lpf = LowPassFilter_Update(heading_pitch_lpf, mpu_euler.pitch, HEADING_PITCH_LPF_ALPHA);
-        }
-
-        // 使用独立的航向 PID 计算差速
-        heading_correction = HeadingPID_Update(&heading_pid, heading_pitch_lpf, dt_s);
-      }
-    }
+    // 航向控制循环已移除 MPU6050 逻辑，保持 heading_correction = 0
+    (void)heading_pitch_lpf_initialized;
+    (void)heading_pitch_lpf;
 
     if (motion_busy)
     {
@@ -653,11 +597,25 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
   // 设置电机目标速度
   base_speed_percent = (fabsf(forward) + fabsf(strafe) + fabsf(rotation)) / 3.0f;
 
-  HeadingPID_Reset(&heading_pid);
+  /* Heading PID removed */
   Motor_ResetPID(MOTOR_RIGHT_REAR);
   Motor_ResetPID(MOTOR_LEFT_REAR);
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
+
+  /* Enforce command-level maximum percent for mecanum motions */
+  float max_percent = COMMAND_MAX_OUTPUT_PERCENT;
+  if (rr > max_percent) rr = max_percent; else if (rr < -max_percent) rr = -max_percent;
+  if (lr > max_percent) lr = max_percent; else if (lr < -max_percent) lr = -max_percent;
+  if (rf > max_percent) rf = max_percent; else if (rf < -max_percent) rf = -max_percent;
+  if (lf > max_percent) lf = max_percent; else if (lf < -max_percent) lf = -max_percent;
+
+  /* Limit PID output so PWM cannot exceed configured percent */
+  float pwm_limit_local = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
+  Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit_local, pwm_limit_local);
+  Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit_local, pwm_limit_local);
+  Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -pwm_limit_local, pwm_limit_local);
+  Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -pwm_limit_local, pwm_limit_local);
 
   Motor_SetTargetPercent(MOTOR_RIGHT_REAR, rr);
   Motor_SetTargetPercent(MOTOR_LEFT_REAR, lr);
@@ -672,64 +630,7 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
   mecanum_mode_active = 1;
 }
 
-static float HeadingPID_Update(HeadingPID_t *pid, float current_pitch, float dt)
-{
-  float error = pid->target_pitch - current_pitch;
-
-  // 积分项（带抗饱和）
-  pid->integral += error * dt;
-  if (pid->integral > pid->output_limit / pid->ki)
-  {
-    pid->integral = pid->output_limit / pid->ki;
-  }
-  else if (pid->integral < -pid->output_limit / pid->ki)
-  {
-    pid->integral = -pid->output_limit / pid->ki;
-  }
-
-  // 微分项
-  float derivative = (error - pid->last_error) / dt;
-
-  // PID 输出
-  float output = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
-
-  // 输出限幅
-  if (output > pid->output_limit)
-  {
-    output = pid->output_limit;
-  }
-  else if (output < -pid->output_limit)
-  {
-    output = -pid->output_limit;
-  }
-
-  pid->output = output;
-  pid->last_error = error;
-
-  return output;
-}
-
-static float LowPassFilter_Update(float previous, float input, float alpha)
-{
-  if (alpha <= 0.0f)
-  {
-    return previous;
-  }
-
-  if (alpha >= 1.0f)
-  {
-    return input;
-  }
-
-  return previous + alpha * (input - previous);
-}
-
-static void HeadingPID_Reset(HeadingPID_t *pid)
-{
-  pid->integral = 0.0f;
-  pid->last_error = 0.0f;
-  pid->output = 0.0f;
-}
+/* Heading PID and associated low-pass filter removed; functionality deprecated. */
 
 static void UART2_StartReception(void)
 {
@@ -877,7 +778,7 @@ static void UART2_HandleCommand(const char *command)
     mecanum_last_targets[MOTOR_LEFT_REAR] = 0.0f;
     mecanum_last_targets[MOTOR_RIGHT_FRONT] = 0.0f;
     mecanum_last_targets[MOTOR_LEFT_FRONT] = 0.0f;
-    HeadingPID_Reset(&heading_pid);
+    /* Heading PID removed */
     Motor_ClearPositionTarget(MOTOR_RIGHT_REAR);
     Motor_ClearPositionTarget(MOTOR_LEFT_REAR);
     Motor_ClearPositionTarget(MOTOR_RIGHT_FRONT);
@@ -891,6 +792,11 @@ static void UART2_HandleCommand(const char *command)
     Motor_ResetPID(MOTOR_LEFT_REAR);
     Motor_ResetPID(MOTOR_RIGHT_FRONT);
     Motor_ResetPID(MOTOR_LEFT_FRONT);
+    /* Restore full PWM output limits after stop */
+    Motor_SetOutputLimit(MOTOR_RIGHT_REAR, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_LEFT_REAR,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
     UART2_SendText("STOPPED\r\n");
     return;
   }
@@ -1031,11 +937,22 @@ static void UART2_HandleCommand(const char *command)
 
     base_speed_percent = (float)parsed;
     mecanum_mode_active = 0;
-    HeadingPID_Reset(&heading_pid);
+    /* Heading PID removed */
     Motor_ResetPID(MOTOR_RIGHT_REAR);
     Motor_ResetPID(MOTOR_LEFT_REAR);
     Motor_ResetPID(MOTOR_RIGHT_FRONT);
     Motor_ResetPID(MOTOR_LEFT_FRONT);
+    /* Enforce command-level maximum percent */
+    if (base_speed_percent > COMMAND_MAX_OUTPUT_PERCENT) base_speed_percent = COMMAND_MAX_OUTPUT_PERCENT;
+    if (base_speed_percent < -COMMAND_MAX_OUTPUT_PERCENT) base_speed_percent = -COMMAND_MAX_OUTPUT_PERCENT;
+
+    /* Limit PID output so PWM cannot exceed configured percent */
+    float pwm_limit = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
+    Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit, pwm_limit);
+    Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit, pwm_limit);
+    Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -pwm_limit, pwm_limit);
+    Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -pwm_limit, pwm_limit);
+
     Motor_SetTargetPercent(MOTOR_RIGHT_REAR, base_speed_percent);
     Motor_SetTargetPercent(MOTOR_LEFT_REAR, base_speed_percent);
     Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent);
@@ -1045,34 +962,7 @@ static void UART2_HandleCommand(const char *command)
 
   if (strncmp(cursor, "MPU", 3) == 0)
   {
-    cursor += 3;
-    while ((*cursor == ' ') || (*cursor == '\t'))
-    {
-      cursor++;
-    }
-
-    if (strncmp(cursor, "ON", 2) == 0)
-    {
-      mpu_correction_enabled = 1;
-      if (MPU6050_DMP_GetData(&mpu_quat, &mpu_euler) == 0)
-      {
-        heading_pid.target_pitch = mpu_euler.pitch;
-      }
-      else
-      {
-        heading_pid.target_pitch = 0.0f;
-      }
-      HeadingPID_Reset(&heading_pid);
-      return;
-    }
-
-    if (strncmp(cursor, "OFF", 3) == 0)
-    {
-      mpu_correction_enabled = 0;
-      HeadingPID_Reset(&heading_pid);
-      return;
-    }
-
+    UART2_SendText("MPU functionality disabled in this build\r\n");
     return;
   }
 
@@ -1124,10 +1014,8 @@ static void UART2_HandleCommand(const char *command)
       return;
     }
 
-    heading_pid.kp = kp;
-    heading_pid.ki = ki;
-    heading_pid.kd = kd;
-    HeadingPID_Reset(&heading_pid);
+    (void)kp; (void)ki; (void)kd;
+    UART2_SendText("Heading PID removed in this build\r\n");
     return;
   }
 

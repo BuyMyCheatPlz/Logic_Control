@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build and Flash",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build_and_flash.sh",
+      "args": ["${input:buildType}"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "echo": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "buildType",
+      "type": "pickString",
+      "description": "选择构建类型",
+      "options": ["Debug", "Release"],
+      "default": "Debug"
+    }
+  ]
+}

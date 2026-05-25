@@ -5,7 +5,6 @@ enable_language(C ASM)
 set(MX_Defines_Syms
 	USE_HAL_DRIVER
 	STM32F407xx
-	MPU6050
     $<$<CONFIG:Debug>:DEBUG>
 )
 
@@ -27,10 +26,8 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/gpio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/freertos.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/motor.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/mpu6050.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/mpu_port.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/inv_mpu.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/inv_mpu_dmp_motion_driver.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/soft_filter.c
+    # MPU6050-related sources removed
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/dma.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/i2c.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tim.c

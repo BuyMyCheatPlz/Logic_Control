@@ -15,9 +15,16 @@
 #define DEFAULT_STRAFE_PERCENT     30.0f
 #define DEFAULT_FORWARD_PERCENT    30.0f
 
+/* Command-level output limit: any high-level command (FORWARD/BACKWARD/LEFT/RIGHT/RUN
+ * that sets motor percent or starts position motion) will be capped to this percent
+ * of full PWM output (0.0f - 100.0f). Set to 30.0f to limit to 30%.
+ */
+#define COMMAND_MAX_OUTPUT_PERCENT 30.0f
+
 /* Position move control */
+#define COMMAND_MOTION_TIMEOUT_S   10U
 #define POSITION_TOLERANCE_COUNTS  10
-#define POSITION_TIMEOUT_MS        10000U
+#define POSITION_TIMEOUT_MS        (COMMAND_MOTION_TIMEOUT_S * 1000U)
 #define POSITION_POLL_DELAY_MS     10U
 
 /* VOFA JustFloat telemetry */
@@ -39,23 +46,23 @@
  * Wheel naming: RIGHT_REAR (RR), RIGHT_FRONT (RF), LEFT_FRONT (LF), LEFT_REAR (LR)
  */
 /* KP */
-#define VELOCITY_PID_KP_RR         0.8f
+#define VELOCITY_PID_KP_RR         1.0f
 #define VELOCITY_PID_KP_RF         0.8f
 #define VELOCITY_PID_KP_LF         0.5f
 #define VELOCITY_PID_KP_LR         0.5f
 /* KI */
-#define VELOCITY_PID_KI_RR         0.0f
+#define VELOCITY_PID_KI_RR         0.4f
 #define VELOCITY_PID_KI_RF         0.05f
 #define VELOCITY_PID_KI_LF         0.05f
 #define VELOCITY_PID_KI_LR         0.05f
 /* KD */
-#define VELOCITY_PID_KD_RR         0.5f
+#define VELOCITY_PID_KD_RR         0.05f
 #define VELOCITY_PID_KD_RF         0.0f
 #define VELOCITY_PID_KD_LF         0.0f
 #define VELOCITY_PID_KD_LR         0.0f
 
 /* Position (outer) PID default gains */
-#define POSITION_PID_KP            0.0f
+#define POSITION_PID_KP            0.5f
 #define POSITION_PID_KI            0.0f
 #define POSITION_PID_KD            0.0f
 /* Limit the position PID output (counts/sec) to this value */
@@ -63,10 +70,6 @@
 /* Tolerance (counts) used to determine target reached */
 #define POSITION_TOLERANCE_COUNTS   10
 
-/* Heading PID defaults */
-#define HEADING_PID_KP             0.0f
-#define HEADING_PID_KI             0.0f
-#define HEADING_PID_KD             0.0f
-#define HEADING_PID_OUTPUT_LIMIT   20.0f
+/* Heading PID removed */
 
 #endif /* __PROJECT_CONFIG_H */

@@ -355,7 +355,8 @@ int32_t Motor_GetEncoderDelta(MotorId_t motor)
 float Motor_GetFeedback(MotorId_t motor)
 {
 	motor = motor_valid_id(motor);
-	return motor_state[motor].feedback_raw;
+	/* Return filtered feedback so telemetry/printing is smoother */
+	return motor_state[motor].feedback_filtered;
 
 }
 

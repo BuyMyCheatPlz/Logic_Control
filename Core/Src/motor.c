@@ -485,7 +485,8 @@ void Motor_UpdateControl(float dt_s)
 		float derivative = 0.0f;
 		float d_term = 0.0f;
 		float output = 0.0f;
-		float max_abs_output = fmaxf(fabsf(pid->output_max), fabsf(pid->output_min));
+		/* Use tighter side for integral bound so asymmetric limits stay safe. */
+		float max_abs_output = fminf(fabsf(pid->output_max), fabsf(pid->output_min));
 
 		/* D-term noise suppression around quantized encoder feedback */
 		if ((feedback_delta > MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND) || (feedback_delta < -MOTOR_VEL_D_FEEDBACK_DELTA_DEADBAND))

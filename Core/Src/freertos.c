@@ -83,6 +83,7 @@ typedef enum
 {
   MOTION_KIND_STRAFE = 0,
   MOTION_KIND_FORWARD = 1,
+  MOTION_KIND_CIRCLE = 2,
 } MotionKind_t;
 
 typedef struct
@@ -127,9 +128,24 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
   }
 
   float circumference = (float)M_PI * WHEEL_DIAM_M;
-  float wheel_travel = (kind == MOTION_KIND_STRAFE)
-    ? ((float)steps * GRID_SIZE_M * 1.41421356237f)
-    : ((float)steps * GRID_SIZE_M);
+  /* For a full in-place turn, the wheel travel is approximated from the
+   * chassis dimensions configured in config.h.
+   */
+  float wheel_travel = 0.0f;
+
+  if (kind == MOTION_KIND_STRAFE)
+  {
+    wheel_travel = (float)steps * GRID_SIZE_M * 1.41421356237f;
+  }
+  else if (kind == MOTION_KIND_CIRCLE)
+  {
+    wheel_travel = (float)steps * CIRCLE_TURN_WHEEL_TRAVEL_M;
+  }
+  else
+  {
+    wheel_travel = (float)steps * GRID_SIZE_M;
+  }
+
   float wheel_revs = wheel_travel / circumference;
   float counts_per_wheel_rev = (float)(ENCODER_LINES * ENCODER_QUADRATURE * GEAR_RATIO);
   return (uint32_t)roundf(wheel_revs * counts_per_wheel_rev);
@@ -205,6 +221,15 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
     Motor_SetPositionTarget(MOTOR_LEFT_REAR,   (lr >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
     Motor_SetPositionTarget(MOTOR_RIGHT_FRONT, (rf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
     Motor_SetPositionTarget(MOTOR_LEFT_FRONT,  (lf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
+  }
+  else if (request->kind == MOTION_KIND_CIRCLE)
+  {
+    int32_t signed_counts = (request->dir >= 0) ? (int32_t)target_counts : -(int32_t)target_counts;
+
+    Motor_SetPositionTarget(MOTOR_RIGHT_REAR,  -signed_counts);
+    Motor_SetPositionTarget(MOTOR_LEFT_REAR,    signed_counts);
+    Motor_SetPositionTarget(MOTOR_RIGHT_FRONT, -signed_counts);
+    Motor_SetPositionTarget(MOTOR_LEFT_FRONT,   signed_counts);
   }
   else
   {
@@ -295,6 +320,22 @@ static void Mecanum_StepForward(int steps, int dir)
   }
 
   request.kind = MOTION_KIND_FORWARD;
+  request.steps = steps;
+  request.dir = dir;
+  (void)MotionQueue_Enqueue(&request);
+}
+
+/* 计算并执行原地转圈（非阻塞）: steps >= 1, dir = +1 顺时针, -1 逆时针 */
+static void Mecanum_StepCircle(int steps, int dir)
+{
+  MotionRequest_t request;
+
+  if (steps <= 0)
+  {
+    return;
+  }
+
+  request.kind = MOTION_KIND_CIRCLE;
   request.steps = steps;
   request.dir = dir;
   (void)MotionQueue_Enqueue(&request);
@@ -904,6 +945,36 @@ static void UART2_HandleCommand(const char *command)
       steps = (int)parsed;
     }
     Mecanum_StepForward(steps, direction);
+    return;
+  }
+
+  if (strncmp(cursor, "CIRCLE", 6) == 0)
+  {
+    int steps = 1;
+    cursor += 6;
+    while ((*cursor == ' ') || (*cursor == '\t'))
+    {
+      cursor++;
+    }
+    if (*cursor != '\0')
+    {
+      char *end_ptr_local = NULL;
+      long parsed = strtol(cursor, &end_ptr_local, 10);
+      if ((end_ptr_local == cursor) || (parsed <= 0))
+      {
+        return;
+      }
+      while ((*end_ptr_local == ' ') || (*end_ptr_local == '\t'))
+      {
+        end_ptr_local++;
+      }
+      if (*end_ptr_local != '\0')
+      {
+        return;
+      }
+      steps = (int)parsed;
+    }
+    Mecanum_StepCircle(steps, +1);
     return;
   }
 

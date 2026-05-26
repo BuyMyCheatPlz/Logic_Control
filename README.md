@@ -1,43 +1,63 @@
 # Logic_Control
 
-简要说明（中文）
+基于 STM32F407 的四轮麦克纳姆底盘固件。当前实现的要点：
 
-概要
-- 基于 STM32F4（STM32F407）平台的轮式小车控制固件，使用 FreeRTOS、HAL 驱动和 MPU6050 DMP实现航向（Pitch/Heading）校正与电机控制。
+- 四轮速度闭环 PID、位置式运动队列、UART 命令接口。
+- 航向 PID / MPU6050 在此分支中已弱化/移除，不应依赖相关命令作为主要控制手段。
 
-硬件要求
-- 主控：STM32F407 系列开发板（工程配置为 STM32F407VET6）。
-- IMU：MPU6050（I2C 地址 0x68），建议连接到 I2C1。
-- 电机驱动与电源：根据你的底板接线配置。
+## 关键文件
 
-主要功能
-- 电机（Mecanum / 多轮）控制与 PID 调节。
-- 使用 MPU6050 DMP 实现姿态（Euler）与航向校正。
-- FreeRTOS 任务隔离（MPU6050 读取、控制回路等）。
+- `Core/Src/main.c` — 设备与任务初始化。
+- `Core/Src/freertos.c` — 串口命令解析、运动队列、控制周期任务。
+- `Core/Src/motor.c` — 电机、编码器、速度与位置 PID 实现。
+- `Core/Inc/config.h` — 所有可调宏（物理量、PID、滤波、限幅等）。
 
-代码结构（关键文件）
-- [Core/Src/main.c](Core/Src/main.c) — 程序入口与任务创建
-- [Core/Src/motor.c](Core/Src/motor.c) — 电机控制实现
-- [Core/Src/mpu6050.c](Core/Src/mpu6050.c) 与 [Core/Src/mpu_port.c](Core/Src/mpu_port.c) — MPU6050 与移植层
-- [Core/Inc/*] — 头文件集合
-- [BUILD_SUCCESS.md](BUILD_SUCCESS.md)、[MPU6050_INTEGRATION.md](MPU6050_INTEGRATION.md)、[JITTER_DEBUG_GUIDE.md](JITTER_DEBUG_GUIDE.md) — 项目文档与使用说明
+## 已支持的串口命令（简要）
 
-构建（本地）
-先确保已安装：`cmake`、`ninja`、`arm-none-eabi` 工具链、`st-flash`（用于刷写）。
+- `STOP`：立即停止并清空队列，会返回 `STOPPED\r\n`。
+- `LEFT <n>` / `RIGHT <n>` / `FORWARD <n>` / `BACK <n>`：按格位置移动（非阻塞队列）。
+- `CIRCLE <n>`：原地顺时针转圈 `n` 次（基于 `WHEEL_BASE_M` / `WHEEL_TRACK_M` 估算）。
+- `RUN <percent>`：连续速度模式，`percent` 在 -100 到 100 之间。
 
-示例命令（在仓库根目录）：
+注意：`PID`、`MPU ON`、`MPU OFF` 等旧文档中的航向控制命令在此分支不再作为主要功能使用。
+
+## 配置与校准
+
+请编辑 `Core/Inc/config.h` 中的宏来匹配你的硬件。主要影响行驶距离/速度换算的宏包括：
+
+- `WHEEL_DIAM_M`（轮径, m）
+- `WHEEL_BASE_M`（前后轮距, m）
+- `WHEEL_TRACK_M`（左右轮距, m）
+- `ENCODER_LINES` / `ENCODER_QUADRATURE`（编码器分辨率）
+- `GEAR_RATIO`（减速比）
+
+修改这些值后重新构建并刷写固件以生效。
+
+## 构建
+
 ```bash
 cmake -S . -B build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/Debug
 ```
 
-刷写固件（示例，按需修改文件名与地址）：
+或使用项目脚本：
+
 ```bash
-st-flash write Logic_Control.bin 0x8000000
+scripts/build_and_flash.sh Debug
 ```
 
-开发与调试
-- 本仓库包含 EWARM（Keil）工程文件在 `EWARM/` 目录，可用于使用 IAR/Keil 等 IDE 开发。
+## 调试建议
+
+- 先使用 `RUN 20` 或 `RUN 30` 验证速度闭环行为。
+- 使用位置命令 `FORWARD 1` / `LEFT 1` 验证编码器计数与距离换算。
+- 如需校准原地旋转，调整 `WHEEL_BASE_M` / `WHEEL_TRACK_M`，再重建并测试 `CIRCLE 1`。
+
+## 参考文档
+
+- `Core/Inc/config.h`（参数说明）
+- `Core/Src/freertos.c`（命令解析实现）
+- `Core/Src/motor.c`（电机控制实现）
+
 - 链接脚本为 `STM32F407XX_FLASH.ld`，启动汇编为 `startup_stm32f407xx.s`。
 
 注意事项
@@ -46,6 +66,32 @@ st-flash write Logic_Control.bin 0x8000000
 
 常见问题与调优
 - 惯性传感器数据噪声会影响 PID 行为，参阅 [JITTER_DEBUG_GUIDE.md](JITTER_DEBUG_GUIDE.md) 获取滤波与采样建议。
+
+配置宏速查
+-----------------
+所有可调参数都集中在 [Core/Inc/config.h](Core/Inc/config.h)。下面是最常改的参数及单位：
+
+- `GRID_SIZE_M`：单格长度，单位 `m`。
+- `WHEEL_DIAM_M`：轮子直径，单位 `m`。
+- `WHEEL_BASE_M`：前后轮中心距，单位 `m`。
+- `WHEEL_TRACK_M`：左右轮中心距，单位 `m`。
+- `ENCODER_LINES`：编码器每转线数，单位 `line/rev`。
+- `ENCODER_QUADRATURE`：四倍频计数倍率，单位 `counts/line`。
+- `GEAR_RATIO`：减速比，单位 `ratio`。
+- `DEFAULT_STRAFE_PERCENT` / `DEFAULT_FORWARD_PERCENT`：默认运动速度，单位 `%`。
+- `CIRCLE_TURN_WHEEL_TRAVEL_M`：原地转一圈时单轮估算行程，单位 `m`。
+- `COMMAND_MAX_OUTPUT_PERCENT`：高层命令输出限幅，单位 `%`。
+- `COMMAND_MOTION_TIMEOUT_S` / `POSITION_TIMEOUT_MS` / `POSITION_POLL_DELAY_MS`：超时和轮询周期，单位分别是 `s`、`ms`、`ms`。
+- `POSITION_TOLERANCE_COUNTS`：位置容差，单位 `counts`。
+- `VOFA_JUSTFLOAT_PERIOD_MS`：VOFA 发送周期，单位 `ms`。
+- `VOFA_JUSTFLOAT_FLOATS`：每帧浮点数数量，单位 `count`。
+- `MOTOR_FEEDBACK_LPF_ALPHA` / `HEADING_PITCH_LPF_ALPHA`：低通滤波系数，无单位，范围 `0.0` 到 `1.0`。
+- `MOTOR_PWM_PERIOD`：PWM 周期上限，单位 `ticks`。
+- `MOTOR_MAX_SPEED_COUNTS_PER_SEC`：估计最大轮速，单位 `counts/s`。
+- `VELOCITY_PID_*`：四轮速度环 PID 参数，控制输出与编码器速度的比例关系，单位随具体项而变。
+- `POSITION_PID_*`：位置外环 PID 参数，控制位置误差到速度目标的映射。
+
+如果你修改了底盘尺寸或编码器参数，优先检查 `WHEEL_BASE_M`、`WHEEL_TRACK_M`、`WHEEL_DIAM_M`、`ENCODER_LINES`、`ENCODER_QUADRATURE` 和 `GEAR_RATIO`，这些会直接影响 `FORWARD`、`LEFT`、`RIGHT` 和 `CIRCLE` 的距离换算。
 
 许可证与作者
 - 请根据项目实际情况补充许可证信息与作者联系方式。
@@ -92,6 +138,7 @@ st-flash write Logic_Control.bin 0x8000000
 	- `RIGHT <n>` — 向右移动 `n` 格（`n` 为正整数，缺省为 `1`）。示例：`RIGHT 2`。
 	- `FORWARD <n>` — 向前移动 `n` 格（`n` 为正整数，缺省为 `1`）。示例：`FORWARD 1`。
 	- `BACKWARD <n>` 或 `BACK <n>` — 向后移动 `n` 格（等价写法），示例：`BACK 1`。
+	- `CIRCLE <n>` — 原地顺时针转圈 `n` 次（`n` 为正整数，缺省为 `1`）。示例：`CIRCLE 1`。
 	- `RUN <percent>` — 以统一基础速度运行，`percent` 为 -100 到 100 的整数或整数字符串，例如 `RUN 30`。此命令设置基础速度并不会返回确认文本。
 	- `MPU ON` / `MPU OFF` — 启用或禁用 MPU6050 的航向（pitch）校正；命令不会返回确认文本。
 	- `PID <kp> <ki> <kd>` — 设置航向 PID 参数（浮点）；此命令用于航向 PID（非车轮速度 PID），命令执行后不会返回确认文本。

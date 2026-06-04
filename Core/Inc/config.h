@@ -7,8 +7,8 @@
 /* Physical and encoder constants */
 #define GRID_SIZE_M                 0.30f   /* 单格长度, unit: m */
 #define WHEEL_DIAM_M                0.06f   /* 轮子直径, unit: m */
-#define WHEEL_BASE_M                0.24f   /* 前后轮中心距, unit: m */
-#define WHEEL_TRACK_M               0.20f   /* 左右轮中心距, unit: m */
+#define WHEEL_BASE_M                0.1226f   /* 前后轮中心距, unit: m */
+#define WHEEL_TRACK_M               0.175f   /* 左右轮中心距, unit: m */
 #define ENCODER_LINES               13      /* 编码器每转线数, unit: line/rev */
 #define ENCODER_QUADRATURE         4      /* 编码器四倍频计数, unit: counts/line */
 #define GEAR_RATIO                 20      /* 减速比, unit: ratio */
@@ -50,20 +50,20 @@
  * Wheel naming: RIGHT_REAR (RR), RIGHT_FRONT (RF), LEFT_FRONT (LF), LEFT_REAR (LR)
  */
 /* KP */
-#define VELOCITY_PID_KP_RR         1.0f    /* 右后轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_RF         0.8f    /* 右前轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_LF         0.5f    /* 左前轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_LR         0.5f    /* 左后轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_RR         2.3f    /* 右后轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_RF         2.1f    /* 右前轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_LF         2.3f    /* 左前轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_LR         2.2f    /* 左后轮速度环 Kp, unit: output/(counts/s) */
 /* KI */
-#define VELOCITY_PID_KI_RR         0.4f    /* 右后轮速度环 Ki, unit: output/(counts) */
-#define VELOCITY_PID_KI_RF         0.05f   /* 右前轮速度环 Ki, unit: output/(counts) */
-#define VELOCITY_PID_KI_LF         0.05f   /* 左前轮速度环 Ki, unit: output/(counts) */
-#define VELOCITY_PID_KI_LR         0.05f   /* 左后轮速度环 Ki, unit: output/(counts) */
+#define VELOCITY_PID_KI_RR         0.8f    /* 右后轮速度环 Ki, unit: output/(counts) */
+#define VELOCITY_PID_KI_RF         0.8f   /* 右前轮速度环 Ki, unit: output/(counts) */
+#define VELOCITY_PID_KI_LF         0.8f   /* 左前轮速度环 Ki, unit: output/(counts) */
+#define VELOCITY_PID_KI_LR         0.8f   /* 左后轮速度环 Ki, unit: output/(counts) */
 /* KD */
-#define VELOCITY_PID_KD_RR         0.05f   /* 右后轮速度环 Kd, unit: output/(counts/s) */
-#define VELOCITY_PID_KD_RF         0.0f    /* 右前轮速度环 Kd, unit: output/(counts/s) */
-#define VELOCITY_PID_KD_LF         0.0f    /* 左前轮速度环 Kd, unit: output/(counts/s) */
-#define VELOCITY_PID_KD_LR         0.0f    /* 左后轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_RR         0.035f   /* 右后轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_RF         0.023f    /* 右前轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_LF         0.0325f    /* 左前轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_LR         0.02f    /* 左后轮速度环 Kd, unit: output/(counts/s) */
 
 /* Position (outer) PID default gains */
 #define POSITION_PID_KP            0.5f     /* 位置环 Kp, unit: counts/s per count */

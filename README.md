@@ -88,6 +88,7 @@ scripts/build_and_flash.sh Debug
 - `MOTOR_FEEDBACK_LPF_ALPHA` / `HEADING_PITCH_LPF_ALPHA`：低通滤波系数，无单位，范围 `0.0` 到 `1.0`。
 - `MOTOR_PWM_PERIOD`：PWM 周期上限，单位 `ticks`。
 - `MOTOR_MAX_SPEED_COUNTS_PER_SEC`：估计最大轮速，单位 `counts/s`。
+- `SPEED_THRESHOLD_COUNTS_PER_SEC`：速度死区阈值；当任意指令的目标速度（含偏置）绝对值低于此值时，PWM 强制 0 以停转（位置模式除外）。单位 `counts/s`。
 - `VELOCITY_PID_*`：四轮速度环 PID 参数，控制输出与编码器速度的比例关系，单位随具体项而变。
 - `POSITION_PID_*`：位置外环 PID 参数，控制位置误差到速度目标的映射。
 

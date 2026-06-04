@@ -49,6 +49,12 @@
 /* Estimated max speed in encoder counts/second (adjust to your hardware) */
 #define MOTOR_MAX_SPEED_COUNTS_PER_SEC 3000.0f /* 估计最大轮速, unit: counts/s */
 
+/* Speed deadband: when the absolute effective target speed (counts/s) is below
+ * this threshold, PWM output is forced to 0 so the wheels stop. This applies to
+ * all motion commands (RUN, FORWARD, BACKWARD, LEFT, RIGHT, CIRCLE, mecanum).
+ * Increase if motors still creep at very low speed targets. Unit: counts/s */
+#define SPEED_THRESHOLD_COUNTS_PER_SEC 50.0f   /* 速度死区阈值, unit: counts/s */
+
 /* Velocity (inner) PID default gains per wheel.
  * Use explicit macros per wheel so you can tune each independently.
  * Wheel naming: RIGHT_REAR (RR), RIGHT_FRONT (RF), LEFT_FRONT (LF), LEFT_REAR (LR)

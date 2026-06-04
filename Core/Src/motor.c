@@ -221,7 +221,7 @@ void Motor_Init(void)
 		motor_state[motor].pos_kd = POSITION_PID_KD;
 		motor_state[motor].pos_integral = 0.0f;
 		motor_state[motor].pos_last_error = 0.0f;
-		motor_state[motor].pos_output_limit = POSITION_OUTPUT_LIMIT;
+		motor_state[motor].pos_output_limit = POSITION_OUTPUT_LIMIT * MOTOR_MAX_SPEED_COUNTS_PER_SEC / 100.0f;
 		motor_state[motor].target_bias_counts_per_sec = 0.0f;
 
 		if (HAL_TIM_PWM_Start(motor_hw[motor].pwm_timer, motor_hw[motor].pwm_channel) != HAL_OK)
@@ -541,6 +541,20 @@ void Motor_SetPositionPIDGain(MotorId_t motor, float kp, float ki, float kd)
 	motor_state[motor].pos_kp = kp;
 	motor_state[motor].pos_ki = ki;
 	motor_state[motor].pos_kd = kd;
+}
+
+void Motor_SetPositionOutputLimit(MotorId_t motor, float limit_percent)
+{
+	motor = motor_valid_id(motor);
+	if (limit_percent < 0.0f)
+	{
+		limit_percent = 0.0f;
+	}
+	if (limit_percent > 100.0f)
+	{
+		limit_percent = 100.0f;
+	}
+	motor_state[motor].pos_output_limit = limit_percent * MOTOR_MAX_SPEED_COUNTS_PER_SEC / 100.0f;
 }
 
 void Motor_SetPositionTarget(MotorId_t motor, int32_t counts_relative)

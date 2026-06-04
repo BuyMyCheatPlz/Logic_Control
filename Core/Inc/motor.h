@@ -37,6 +37,7 @@ void Motor_StopAll(void);
 void Motor_SetInversion(MotorId_t motor, uint8_t inverted);
 void Motor_SetPIDGain(MotorId_t motor, float kp, float ki, float kd);
 void Motor_SetPositionPIDGain(MotorId_t motor, float kp, float ki, float kd);
+void Motor_SetPositionOutputLimit(MotorId_t motor, float limit_percent);
 void Motor_SetPositionTarget(MotorId_t motor, int32_t counts_relative);
 void Motor_ClearPositionTarget(MotorId_t motor);
 int32_t Motor_GetPosition(MotorId_t motor);

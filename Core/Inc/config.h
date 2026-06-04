@@ -35,10 +35,6 @@
 #define POSITION_TIMEOUT_MS        (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 位置运动超时时间, unit: ms */
 #define POSITION_POLL_DELAY_MS     10U     /* 位置轮询周期, unit: ms */
 
-/* VOFA JustFloat telemetry */
-#define VOFA_JUSTFLOAT_PERIOD_MS   20U     /* VOFA 发送周期, unit: ms */
-#define VOFA_JUSTFLOAT_FLOATS      8U      /* VOFA 每帧浮点数个数, unit: count */
-
 /* Control-loop low-pass filters */
 /* 0.0f -> no update, 1.0f -> no smoothing. */
 #define MOTOR_FEEDBACK_LPF_ALPHA   0.20f   /* 电机反馈低通系数, unit: 0-1 */

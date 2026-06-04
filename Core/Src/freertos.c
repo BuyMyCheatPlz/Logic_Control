@@ -60,6 +60,9 @@ enum
   UART2_CMD_MAX_LEN = 32,
   UART2_CMD_QUEUE_DEPTH = 4,
   UART2_RX_FRAME_SIZE = 64,
+
+  UART3_CMD_MAX_LEN = 32,
+  UART3_RX_FRAME_SIZE = 32,
 };
 
 static uint8_t uart2_rx_frame[UART2_RX_FRAME_SIZE];
@@ -70,7 +73,17 @@ static volatile uint8_t uart2_cmd_head;
 static volatile uint8_t uart2_cmd_tail;
 static volatile uint8_t uart2_cmd_count;
 
+static uint8_t uart3_rx_frame[UART3_RX_FRAME_SIZE];
+static char uart3_rx_line[UART3_CMD_MAX_LEN];
+static uint8_t uart3_rx_len;
+
+/* UART2 数组模式状态机 */
+static uint8_t uart2_in_array;
+
 static float base_speed_percent = 0.0f;
+
+/* UART3 发送函数前置声明 */
+static void UART3_SendText(const char *text);
 
 /* 当使用 Mecanum_SetMotion 设定分轮速度时置位，主循环在此模式下不覆盖各轮目标 */
 static uint8_t mecanum_mode_active = 0;
@@ -91,6 +104,7 @@ typedef struct
   MotionKind_t kind;
   int steps;
   int dir;
+  uint8_t source;   /* 2 = UART2, 3 = UART3 */
 } MotionRequest_t;
 
 enum
@@ -111,7 +125,6 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation) __att
 
 /* 物理参数已集中到 config.h */
 static void UART2_SendText(const char *text);
-static void VOFA_SendJustFloat(void);
 
 #include "config.h"
 
@@ -128,9 +141,7 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
   }
 
   float circumference = (float)M_PI * WHEEL_DIAM_M;
-  /* For a full in-place turn, the wheel travel is approximated from the
-   * chassis dimensions configured in config.h.
-   */
+
   float wheel_travel = 0.0f;
 
   if (kind == MOTION_KIND_STRAFE)
@@ -203,7 +214,6 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
 
-  /* Apply command-level output limits for position motions so PWM cannot exceed configured percent */
   float pwm_limit = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
   Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit, pwm_limit);
   Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit, pwm_limit);
@@ -283,18 +293,36 @@ static uint8_t Motion_Tick(void)
   Motor_ResetPID(MOTOR_LEFT_REAR);
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
-  /* Restore full PWM output limits after motion stop */
+
   Motor_SetOutputLimit(MOTOR_RIGHT_REAR, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
   Motor_SetOutputLimit(MOTOR_LEFT_REAR,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
   Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
   Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+
+  uint8_t source = motion_current.source;
   motion_active = 0U;
-  UART2_SendText("STOPPED\r\n");
+
+  /* 检查是否还有更多 motion 请求在队列中 */
+  if (motion_queue_count > 0U)
+  {
+    /* 还有待执行的请求，不发送 STOPPED */
+    return 1U;
+  }
+
+  if (source == 3)
+  {
+    UART3_SendText("STOPPED\r\n");
+  }
+  else
+  {
+    UART2_SendText("STOPPED\r\n");
+  }
+
   return 1U;
 }
 
-/* 计算并执行按格侧移（非阻塞）: steps >=1, dir = -1 左, +1 右 */
-static void Mecanum_StepStrafe(int steps, int dir)
+/* steps >=1, dir = -1 左, +1 右, source 2=UART2 3=UART3 */
+static void Mecanum_StepStrafe(int steps, int dir, uint8_t source)
 {
   MotionRequest_t request;
 
@@ -306,11 +334,12 @@ static void Mecanum_StepStrafe(int steps, int dir)
   request.kind = MOTION_KIND_STRAFE;
   request.steps = steps;
   request.dir = dir;
+  request.source = source;
   (void)MotionQueue_Enqueue(&request);
 }
 
-/* 计算并执行按格前进/后退（非阻塞）: steps >=1, dir = +1 forward, -1 backward */
-static void Mecanum_StepForward(int steps, int dir)
+/* steps >=1, dir = +1 forward, -1 backward, source 2=UART2 3=UART3 */
+static void Mecanum_StepForward(int steps, int dir, uint8_t source)
 {
   MotionRequest_t request;
 
@@ -322,11 +351,12 @@ static void Mecanum_StepForward(int steps, int dir)
   request.kind = MOTION_KIND_FORWARD;
   request.steps = steps;
   request.dir = dir;
+  request.source = source;
   (void)MotionQueue_Enqueue(&request);
 }
 
-/* 计算并执行原地转圈（非阻塞）: steps >= 1, dir = +1 顺时针, -1 逆时针 */
-static void Mecanum_StepCircle(int steps, int dir)
+/* steps >= 1, dir = +1 顺时针, -1 逆时针, source 2=UART2 3=UART3 */
+static void Mecanum_StepCircle(int steps, int dir, uint8_t source)
 {
   MotionRequest_t request;
 
@@ -338,7 +368,14 @@ static void Mecanum_StepCircle(int steps, int dir)
   request.kind = MOTION_KIND_CIRCLE;
   request.steps = steps;
   request.dir = dir;
+  request.source = source;
   (void)MotionQueue_Enqueue(&request);
+}
+
+/* 判断是否有活跃的 motion（正在执行 + 队列等待中） */
+static uint8_t IsMotionBusy(void)
+{
+  return (motion_active || (motion_queue_count > 0U)) ? 1U : 0U;
 }
 
 // 航向 PID 已移除；保留 Mecanum_SetMotion 声明
@@ -469,6 +506,13 @@ void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
   UART2_StartReception();
+
+  /* 启动 UART3 接收 */
+  if (HAL_UARTEx_ReceiveToIdle_IT(&huart3, uart3_rx_frame, UART3_RX_FRAME_SIZE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /* Infinite loop */
   for(;;)
   {
@@ -494,11 +538,6 @@ void StartTask02(void *argument)
 void StartTask03(void *argument)
 {
   /* USER CODE BEGIN StartTask03 */
-  uint32_t last_tick = osKernelGetTickCount();
-  uint32_t vofa_last_tick = last_tick;
-
-  /* MPU6050 removed: skip sensor initialization */
-
   /* Infinite loop - fixed 10ms periodic using vTaskDelayUntil */
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod = pdMS_TO_TICKS(10);
@@ -511,13 +550,13 @@ void StartTask03(void *argument)
     (void)Motion_Tick();
 
     float heading_correction = 0.0f;
-    uint8_t motion_busy = (base_speed_percent != 0.0f) || mecanum_mode_active || motion_active || Motor_HasActivePositionTarget();
+    uint8_t motion_busy_local = (base_speed_percent != 0.0f) || mecanum_mode_active || motion_active || Motor_HasActivePositionTarget();
 
     // 航向控制循环已移除 MPU6050 逻辑，保持 heading_correction = 0
     (void)heading_pitch_lpf_initialized;
     (void)heading_pitch_lpf;
 
-    if (motion_busy)
+    if (motion_busy_local)
     {
       Motor_SetTargetBiasPercent(MOTOR_RIGHT_REAR,  heading_correction);
       Motor_SetTargetBiasPercent(MOTOR_LEFT_REAR,  -heading_correction);
@@ -533,7 +572,6 @@ void StartTask03(void *argument)
     }
 
     // 应用基础速度 + 航向校正差速
-    // 只在 RUN 指令首次进入时设置目标，避免每周期重置导致 PID 积分抖动
     if (!mecanum_mode_active && (base_speed_percent != 0.0f))
     {
       static float last_applied_percent = 0.0f;
@@ -548,7 +586,6 @@ void StartTask03(void *argument)
     }
     else if (mecanum_mode_active)
     {
-      /* 在 mecanum 分轮模式下，基于记录的分轮目标应用航向校正 */
       static float last_mecanum_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
       static uint8_t mecanum_targets_dirty = 1;
       if ((mecanum_last_targets[MOTOR_RIGHT_REAR]  != last_mecanum_targets[MOTOR_RIGHT_REAR]) ||
@@ -570,7 +607,6 @@ void StartTask03(void *argument)
     }
     else
     {
-      /* base_speed_percent == 0 且非 mecanum 模式，确保目标为零 */
       static float last_zero_percent = -1.0f;
       if (last_zero_percent != 0.0f)
       {
@@ -585,14 +621,6 @@ void StartTask03(void *argument)
     // 电机 PID 控制循环
     Motor_UpdateControl(dt_s);
 
-    {
-      TickType_t now_tick = xTaskGetTickCount();
-      if ((now_tick - vofa_last_tick) >= pdMS_TO_TICKS(VOFA_JUSTFLOAT_PERIOD_MS))
-      {
-        VOFA_SendJustFloat();
-        vofa_last_tick = now_tick;
-      }
-    }
   }
   /* USER CODE END StartTask03 */
 }
@@ -612,20 +640,17 @@ void StartTask03(void *argument)
  */
 static void Mecanum_SetMotion(float forward, float strafe, float rotation)
 {
-  // 计算各轮速度
-  float rr = forward - strafe - rotation;  // 右后
-  float lr = forward + strafe + rotation;  // 左后
-  float rf = forward + strafe - rotation;  // 右前
-  float lf = forward - strafe + rotation;  // 左前
+  float rr = forward - strafe - rotation;
+  float lr = forward + strafe + rotation;
+  float rf = forward + strafe - rotation;
+  float lf = forward - strafe + rotation;
 
-  // 找到最大绝对值
   float max_speed = 0.0f;
   if (fabsf(rr) > max_speed) max_speed = fabsf(rr);
   if (fabsf(lr) > max_speed) max_speed = fabsf(lr);
   if (fabsf(rf) > max_speed) max_speed = fabsf(rf);
   if (fabsf(lf) > max_speed) max_speed = fabsf(lf);
 
-  // 归一化到 ±100%
   if (max_speed > 100.0f)
   {
     float scale = 100.0f / max_speed;
@@ -635,23 +660,19 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
     lf *= scale;
   }
 
-  // 设置电机目标速度
   base_speed_percent = (fabsf(forward) + fabsf(strafe) + fabsf(rotation)) / 3.0f;
 
-  /* Heading PID removed */
   Motor_ResetPID(MOTOR_RIGHT_REAR);
   Motor_ResetPID(MOTOR_LEFT_REAR);
   Motor_ResetPID(MOTOR_RIGHT_FRONT);
   Motor_ResetPID(MOTOR_LEFT_FRONT);
 
-  /* Enforce command-level maximum percent for mecanum motions */
   float max_percent = COMMAND_MAX_OUTPUT_PERCENT;
   if (rr > max_percent) rr = max_percent; else if (rr < -max_percent) rr = -max_percent;
   if (lr > max_percent) lr = max_percent; else if (lr < -max_percent) lr = -max_percent;
   if (rf > max_percent) rf = max_percent; else if (rf < -max_percent) rf = -max_percent;
   if (lf > max_percent) lf = max_percent; else if (lf < -max_percent) lf = -max_percent;
 
-  /* Limit PID output so PWM cannot exceed configured percent */
   float pwm_limit_local = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
   Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit_local, pwm_limit_local);
   Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit_local, pwm_limit_local);
@@ -663,7 +684,6 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
   Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, rf);
   Motor_SetTargetPercent(MOTOR_LEFT_FRONT, lf);
 
-  /* 记录分轮目标并进入 mecanum 模式，主循环将不再用统一 base_speed 覆盖 */
   mecanum_last_targets[MOTOR_RIGHT_REAR]  = rr;
   mecanum_last_targets[MOTOR_LEFT_REAR]   = lr;
   mecanum_last_targets[MOTOR_RIGHT_FRONT] = rf;
@@ -691,39 +711,9 @@ static void UART2_SendText(const char *text)
   HAL_UART_Transmit(&huart2, (uint8_t *)text, (uint16_t)strlen(text), HAL_MAX_DELAY);
 }
 
-static void VOFA_SendJustFloat(void)
+static void UART3_SendText(const char *text)
 {
-  /* VOFA+ JustFloat frame: N floats + 4-byte tail (0x00 0x00 0x80 0x7F) */
-  float vofa_frame[VOFA_JUSTFLOAT_FLOATS + 1U] = {0.0f};
-  const MotorPid_t *pid = NULL;
-
-  vofa_frame[0] = Motor_GetFeedback(MOTOR_RIGHT_REAR);
-  pid = Motor_GetPID(MOTOR_RIGHT_REAR);
-  vofa_frame[1] = (pid != NULL) ? pid->target : 0.0f;
-
-  vofa_frame[2] = Motor_GetFeedback(MOTOR_LEFT_REAR);
-  pid = Motor_GetPID(MOTOR_LEFT_REAR);
-  vofa_frame[3] = (pid != NULL) ? pid->target : 0.0f;
-
-  vofa_frame[4] = Motor_GetFeedback(MOTOR_RIGHT_FRONT);
-  pid = Motor_GetPID(MOTOR_RIGHT_FRONT);
-  vofa_frame[5] = (pid != NULL) ? pid->target : 0.0f;
-
-  vofa_frame[6] = Motor_GetFeedback(MOTOR_LEFT_FRONT);
-  pid = Motor_GetPID(MOTOR_LEFT_FRONT);
-  vofa_frame[7] = (pid != NULL) ? pid->target : 0.0f;
-
-  /* JustFloat frame tail: IEEE 754 representation that VOFA+ recognizes as frame end */
-  {
-    uint8_t *tail = (uint8_t *)&vofa_frame[VOFA_JUSTFLOAT_FLOATS];
-    tail[0] = 0x00U;
-    tail[1] = 0x00U;
-    tail[2] = 0x80U;
-    tail[3] = 0x7FU;
-  }
-
-  (void)HAL_UART_Transmit(&huart3, (uint8_t *)vofa_frame,
-                          (uint16_t)((VOFA_JUSTFLOAT_FLOATS + 1U) * sizeof(float)), 10U);
+  HAL_UART_Transmit(&huart3, (uint8_t *)text, (uint16_t)strlen(text), HAL_MAX_DELAY);
 }
 
 static void UART2_EnqueueCommandFromISR(const char *command)
@@ -769,6 +759,40 @@ static void UART2_ProcessRxByte(uint8_t byte)
     return;
   }
 
+  if (byte == '{')
+  {
+    uart2_in_array = 1;
+    uart2_rx_len = 0;
+    return;
+  }
+  if (byte == '}')
+  {
+    if (uart2_rx_len > 0U)
+    {
+      uart2_rx_line[uart2_rx_len] = '\0';
+      strncpy(uart2_cmd_queue[uart2_cmd_tail], uart2_rx_line, UART2_CMD_MAX_LEN - 1U);
+      uart2_cmd_queue[uart2_cmd_tail][UART2_CMD_MAX_LEN - 1U] = '\0';
+      uart2_cmd_tail = (uint8_t)((uart2_cmd_tail + 1U) % UART2_CMD_QUEUE_DEPTH);
+      uart2_cmd_count++;
+      uart2_rx_len = 0;
+    }
+    uart2_in_array = 0;
+    return;
+  }
+  if (byte == ',')
+  {
+    if (uart2_in_array && (uart2_rx_len > 0U))
+    {
+      uart2_rx_line[uart2_rx_len] = '\0';
+      strncpy(uart2_cmd_queue[uart2_cmd_tail], uart2_rx_line, UART2_CMD_MAX_LEN - 1U);
+      uart2_cmd_queue[uart2_cmd_tail][UART2_CMD_MAX_LEN - 1U] = '\0';
+      uart2_cmd_tail = (uint8_t)((uart2_cmd_tail + 1U) % UART2_CMD_QUEUE_DEPTH);
+      uart2_cmd_count++;
+      uart2_rx_len = 0;
+    }
+    return;
+  }
+
   if (uart2_rx_len < (UART2_CMD_MAX_LEN - 1U))
   {
     uart2_rx_line[uart2_rx_len++] = (char)byte;
@@ -781,11 +805,110 @@ static void UART2_ProcessRxByte(uint8_t byte)
 
 static void UART2_FinalizeLine(void)
 {
+  if (uart2_in_array)
+  {
+    return;
+  }
+
   if (uart2_rx_len > 0U)
   {
     uart2_rx_line[uart2_rx_len] = '\0';
     UART2_EnqueueCommandFromISR(uart2_rx_line);
     uart2_rx_len = 0U;
+  }
+}
+
+/* UART3 指令处理 */
+
+static void UART3_HandleCommand(const char *command)
+{
+  const char *cursor = command;
+
+  while ((*cursor == ' ') || (*cursor == '\t'))
+    cursor++;
+
+  /* STOP 命令不受互斥限制 */
+  if (strncmp(cursor, "STOP", 4) == 0)
+  {
+    cursor += 4;
+    while ((*cursor == ' ') || (*cursor == '\t'))
+      cursor++;
+    if (*cursor != '\0')
+      return;
+
+    base_speed_percent = 0.0f;
+    mecanum_mode_active = 0;
+    MotionQueue_Clear();
+    motion_active = 0U;
+    Motor_ClearPositionTarget(MOTOR_RIGHT_REAR);
+    Motor_ClearPositionTarget(MOTOR_LEFT_REAR);
+    Motor_ClearPositionTarget(MOTOR_RIGHT_FRONT);
+    Motor_ClearPositionTarget(MOTOR_LEFT_FRONT);
+    Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
+    Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
+    Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
+    Motor_SetTargetPercent(MOTOR_LEFT_FRONT, 0.0f);
+    Motor_StopAll();
+    Motor_ResetPID(MOTOR_RIGHT_REAR);
+    Motor_ResetPID(MOTOR_LEFT_REAR);
+    Motor_ResetPID(MOTOR_RIGHT_FRONT);
+    Motor_ResetPID(MOTOR_LEFT_FRONT);
+    Motor_SetOutputLimit(MOTOR_RIGHT_REAR, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_LEFT_REAR,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
+    return;
+  }
+
+  /* CIRCLE n 指令 — 受互斥保护 */
+  if (strncmp(cursor, "CIRCLE", 6) == 0)
+  {
+    if (IsMotionBusy())
+      return;
+
+    cursor += 6;
+    while ((*cursor == ' ') || (*cursor == '\t'))
+      cursor++;
+
+    int steps = 1;
+    if (*cursor != '\0')
+    {
+      char *endp = NULL;
+      long parsed = strtol(cursor, &endp, 10);
+      if ((endp == cursor) || (parsed <= 0))
+        return;
+      while ((*endp == ' ') || (*endp == '\t'))
+        endp++;
+      if (*endp != '\0')
+        return;
+      steps = (int)parsed;
+    }
+
+    Mecanum_StepCircle(steps, +1, 3);
+    return;
+  }
+}
+
+static void UART3_ProcessByte(uint8_t byte)
+{
+  if ((byte == '\r') || (byte == '\n'))
+  {
+    if (uart3_rx_len > 0U)
+    {
+      uart3_rx_line[uart3_rx_len] = '\0';
+      UART3_HandleCommand(uart3_rx_line);
+      uart3_rx_len = 0;
+    }
+    return;
+  }
+
+  if (uart3_rx_len < (UART3_CMD_MAX_LEN - 1U))
+  {
+    uart3_rx_line[uart3_rx_len++] = (char)byte;
+  }
+  else
+  {
+    uart3_rx_len = 0U;
   }
 }
 
@@ -819,7 +942,6 @@ static void UART2_HandleCommand(const char *command)
     mecanum_last_targets[MOTOR_LEFT_REAR] = 0.0f;
     mecanum_last_targets[MOTOR_RIGHT_FRONT] = 0.0f;
     mecanum_last_targets[MOTOR_LEFT_FRONT] = 0.0f;
-    /* Heading PID removed */
     Motor_ClearPositionTarget(MOTOR_RIGHT_REAR);
     Motor_ClearPositionTarget(MOTOR_LEFT_REAR);
     Motor_ClearPositionTarget(MOTOR_RIGHT_FRONT);
@@ -833,7 +955,6 @@ static void UART2_HandleCommand(const char *command)
     Motor_ResetPID(MOTOR_LEFT_REAR);
     Motor_ResetPID(MOTOR_RIGHT_FRONT);
     Motor_ResetPID(MOTOR_LEFT_FRONT);
-    /* Restore full PWM output limits after stop */
     Motor_SetOutputLimit(MOTOR_RIGHT_REAR, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
     Motor_SetOutputLimit(MOTOR_LEFT_REAR,  -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
     Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -(MOTOR_PWM_PERIOD), (MOTOR_PWM_PERIOD));
@@ -868,7 +989,7 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepStrafe(steps, +1);
+    Mecanum_StepStrafe(steps, +1, 2);
     return;
   }
 
@@ -898,7 +1019,7 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepStrafe(steps, -1);
+    Mecanum_StepStrafe(steps, -1, 2);
     return;
   }
 
@@ -944,7 +1065,7 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepForward(steps, direction);
+    Mecanum_StepForward(steps, direction, 2);
     return;
   }
 
@@ -974,7 +1095,7 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepCircle(steps, +1);
+    Mecanum_StepCircle(steps, +1, 2);
     return;
   }
 
@@ -1008,16 +1129,13 @@ static void UART2_HandleCommand(const char *command)
 
     base_speed_percent = (float)parsed;
     mecanum_mode_active = 0;
-    /* Heading PID removed */
     Motor_ResetPID(MOTOR_RIGHT_REAR);
     Motor_ResetPID(MOTOR_LEFT_REAR);
     Motor_ResetPID(MOTOR_RIGHT_FRONT);
     Motor_ResetPID(MOTOR_LEFT_FRONT);
-    /* Enforce command-level maximum percent */
     if (base_speed_percent > COMMAND_MAX_OUTPUT_PERCENT) base_speed_percent = COMMAND_MAX_OUTPUT_PERCENT;
     if (base_speed_percent < -COMMAND_MAX_OUTPUT_PERCENT) base_speed_percent = -COMMAND_MAX_OUTPUT_PERCENT;
 
-    /* Limit PID output so PWM cannot exceed configured percent */
     float pwm_limit = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
     Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit, pwm_limit);
     Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit, pwm_limit);
@@ -1109,6 +1227,19 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       Error_Handler();
     }
   }
+
+  if (huart->Instance == USART3)
+  {
+    for (uint16_t index = 0U; index < Size; index++)
+    {
+      UART3_ProcessByte(uart3_rx_frame[index]);
+    }
+
+    if (HAL_UARTEx_ReceiveToIdle_IT(&huart3, uart3_rx_frame, UART3_RX_FRAME_SIZE) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
@@ -1118,6 +1249,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     uart2_rx_len = 0U;
     (void)HAL_UARTEx_ReceiveToIdle_IT(&huart2, uart2_rx_frame, UART2_RX_FRAME_SIZE);
   }
+
+  if (huart->Instance == USART3)
+  {
+    uart3_rx_len = 0U;
+    (void)HAL_UARTEx_ReceiveToIdle_IT(&huart3, uart3_rx_frame, UART3_RX_FRAME_SIZE);
+  }
 }
 
 /* USER CODE END 4 */
@@ -1126,4 +1263,3 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 /* USER CODE BEGIN Application */
 
 /* USER CODE END Application */
-

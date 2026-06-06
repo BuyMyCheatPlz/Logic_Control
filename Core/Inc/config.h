@@ -5,7 +5,7 @@
 #define __PROJECT_CONFIG_H
 
 /* Physical and encoder constants */
-#define GRID_SIZE_M                 0.30f   /* 单格长度, unit: m */
+#define GRID_SIZE_M                 0.15f   /* 单格长度, unit: m */
 #define WHEEL_DIAM_M                0.06f   /* 轮子直径, unit: m */
 #define WHEEL_BASE_M                0.1226f   /* 前后轮中心距, unit: m */
 #define WHEEL_TRACK_M               0.175f   /* 左右轮中心距, unit: m */
@@ -71,19 +71,12 @@
 #define POSITION_PID_KD            0.0f     /* 位置环 Kd, unit: counts/s per (count/s) */
 /* Limit the position PID output as a percentage of max motor speed.
  * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s). */
-#define POSITION_OUTPUT_LIMIT      100.0f   /* 位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT      30.0f   /* 位置环输出限幅, unit: % of max speed */
 /* Limit the position PID output during startup phase as a percentage of max speed.
  * Startup limits help prevent aggressive position corrections immediately after
  * power-on, before the encoder feedback loop has fully settled.
  * Set this to a lower value than POSITION_OUTPUT_LIMIT for soft start. */
-#define POSITION_OUTPUT_LIMIT_STARTUP 16.7f /* 启动阶段位置环输出限幅, unit: % of max speed */
-/* Tolerance (counts) used to determine target reached */
-#define POSITION_TOLERANCE_COUNTS   10      /* 位置到达容差, unit: counts */
-
-/* Vofa JustFloat telemetry over UART3.
- * Send period in milliseconds. Must match the control-loop period (10 ms). */
-#define VOFA_SEND_PERIOD_MS        10U     /* Vofa 发送周期, unit: ms */
-
+#define POSITION_OUTPUT_LIMIT_STARTUP 30.0f /* 启动阶段位置环输出限幅, unit: % of max speed */
 /* Heading PID removed */
 
 #endif /* __PROJECT_CONFIG_H */

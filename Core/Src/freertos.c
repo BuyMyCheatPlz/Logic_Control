@@ -58,7 +58,7 @@ extern UART_HandleTypeDef huart3;
 enum
 {
   UART2_CMD_MAX_LEN = 32,
-  UART2_CMD_QUEUE_DEPTH = 4,
+  UART2_CMD_QUEUE_DEPTH = 16,
   UART2_RX_FRAME_SIZE = 64,
 
   UART3_CMD_MAX_LEN = 32,
@@ -84,7 +84,6 @@ static float base_speed_percent = 0.0f;
 
 /* UART3 发送函数前置声明 */
 static void UART3_SendText(const char *text);
-static void Vofa_SendJustFloat(const float *data, uint8_t count);
 
 /* 当使用 Mecanum_SetMotion 设定分轮速度时置位，主循环在此模式下不覆盖各轮目标 */
 static uint8_t mecanum_mode_active = 0;
@@ -110,7 +109,7 @@ typedef struct
 
 enum
 {
-  MOTION_QUEUE_DEPTH = 4,
+  MOTION_QUEUE_DEPTH = 16,
 };
 
 static MotionRequest_t motion_queue[MOTION_QUEUE_DEPTH];
@@ -147,7 +146,7 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
 
   if (kind == MOTION_KIND_STRAFE)
   {
-    wheel_travel = (float)steps * GRID_SIZE_M * 1.41421356237f;
+    wheel_travel = (float)steps * GRID_SIZE_M * 1.11f;
   }
   else if (kind == MOTION_KIND_CIRCLE)
   {
@@ -630,20 +629,6 @@ void StartTask03(void *argument)
     // 电机 PID 控制循环
     Motor_UpdateControl(dt_s);
 
-    /* Vofa JustFloat telemetry over UART3: send 4-wheel actual speed and target speed.
-     * Data layout: [RR_actual, RR_target, LR_actual, LR_target,
-     *               RF_actual, RF_target, LF_actual, LF_target]  (8 floats)
-     * Use Motor_GetFeedback (filtered speed counts/sec) as actual speed. */
-    {
-      float vofa_data[8];
-      for (MotorId_t m = MOTOR_RIGHT_REAR; m < MOTOR_COUNT; m++)
-      {
-        vofa_data[m * 2U]     = Motor_GetFeedback(m);
-        vofa_data[m * 2U + 1U] = Motor_GetPID(m)->target;
-      }
-      Vofa_SendJustFloat(vofa_data, 8U);
-    }
-
   }
   /* USER CODE END StartTask03 */
 }
@@ -715,44 +700,6 @@ static void Mecanum_SetMotion(float forward, float strafe, float rotation)
 }
 
 /* Heading PID and associated low-pass filter removed; functionality deprecated. */
-
-/* Vofa JustFloat telemetry over UART3.
- * Sends an array of floats in little-endian format, terminated by
- * the Vofa tail marker (0x00 0x00 0x80 0x7F).
- * data: array of float values
- * count: number of float values
- */
-static void Vofa_SendJustFloat(const float *data, uint8_t count)
-{
-  /* JustFloat frame tail marker: bytes 00 00 80 7F */
-  static const uint8_t tail_marker[4] = { 0x00, 0x00, 0x80, 0x7F };
-
-  if ((data == NULL) || (count == 0U))
-  {
-    return;
-  }
-
-  /* Send each float in little-endian byte order */
-  for (uint8_t i = 0U; i < count; i++)
-  {
-    uint32_t raw;
-    /* memcpy avoids strict-aliasing UB */
-    memcpy(&raw, &data[i], sizeof(raw));
-    uint8_t bytes[4];
-    bytes[0] = (uint8_t)(raw & 0xFFU);
-    bytes[1] = (uint8_t)((raw >> 8U) & 0xFFU);
-    bytes[2] = (uint8_t)((raw >> 16U) & 0xFFU);
-    bytes[3] = (uint8_t)((raw >> 24U) & 0xFFU);
-
-    if (HAL_UART_Transmit(&huart3, bytes, 4U, HAL_MAX_DELAY) != HAL_OK)
-    {
-      return;
-    }
-  }
-
-  /* Send frame tail */
-  (void)HAL_UART_Transmit(&huart3, tail_marker, 4U, HAL_MAX_DELAY);
-}
 
 static void UART2_StartReception(void)
 {

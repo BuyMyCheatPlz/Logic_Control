@@ -25,14 +25,14 @@
 
 - **defaultTask** — 空闲占位，无实际业务
 - **Send_Data** — 从 `uart2_cmd_queue` 出队指令，调用 `UART2_HandleCommand()` 分发
-- **Proccess_Data** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加 `POSITION_OUTPUT_LIMIT_STARTUP` 限制位置环输出，循环末尾通过 UART3 发送 Vofa JustFloat 遥测
+- **Proccess_Data** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加 `POSITION_OUTPUT_LIMIT_STARTUP` 限制位置环输出
 
 ### 第二层：通信层（双 UART 通道）
 
 | 通道 | 物理接口 | 职责 | 数据格式 |
 |------|----------|------|----------|
 | UART2 | USART2 | 主运动序列通道 | 数组：`{FORWARD 3,LEFT 2,BACKWARD 1}` 或单行：`RUN 50` / `STOP` |
-| UART3 | USART3 | 旋转/停止独立通道 + Vofa JustFloat 遥测输出 | 单行：`CIRCLE` / `CIRCLE n` / `STOP` |
+| UART3 | USART3 | 旋转/停止独立通道 | 单行：`CIRCLE` / `CIRCLE n` / `STOP` |
 
 **UART2 数据流：**
 
@@ -61,9 +61,8 @@
 **UART3 数据流：**
 
 ```
-上位机 ←→ UART3
+上位机 → UART3
   │
-  ├── 发送方向（上位机 → MCU）：
   │   HAL_UARTEx_RxEventCallback (中断)
   │       │
   │       ▼
@@ -76,14 +75,6 @@
   │       │ 完成后
   │       ▼
   │   UART3_SendText("STOPPED\r\n")
-  │
-  └── 接收方向（MCU → 上位机）：
-      Proccess_Data 循环末尾 (每 10ms)
-          │
-          ▼
-      Vofa_SendJustFloat() → UART3 发送 JustFloat 帧
-          8 个 float: [RR实际, RR目标, LR实际, LR目标,
-                        RF实际, RF目标, LF实际, LF目标]
 ```
 
 ### 第三层：运动编排层
@@ -152,29 +143,6 @@ Motor_UpdateControl(dt_s)  ← 每 10ms 调用
     └─────────┴─────────┘
 ```
 
-### 4.5 层：Vofa JustFloat 遥测
-
-每 10ms 通过 UART3 以 **JustFloat 小端格式** 发送 8 个 float：
-
-| 索引 | 通道 | 含义 |
-|------|------|------|
-| 0 | Ch1 | RR 实际速度 (counts/s) |
-| 1 | Ch2 | RR 目标速度 (counts/s) |
-| 2 | Ch3 | LR 实际速度 (counts/s) |
-| 3 | Ch4 | LR 目标速度 (counts/s) |
-| 4 | Ch5 | RF 实际速度 (counts/s) |
-| 5 | Ch6 | RF 目标速度 (counts/s) |
-| 6 | Ch7 | LF 实际速度 (counts/s) |
-| 7 | Ch8 | LF 目标速度 (counts/s) |
-
-帧尾：`00 00 80 7F`（JustFloat 帧尾标记）。
-
-**Vofa+ 上位机配置：**
-- 协议选择：**JustFloat**
-- 通道数：**8**
-- 波特率：匹配 UART3（默认 115200）
-- 可以在 Vofa+ 中同时观察 4 轮的实际速度与目标速度曲线，验证 PID 追踪效果。
-
 ### 第五层：物理配置层
 
 所有可调参数集中在 `Core/Inc/config.h`：
@@ -215,7 +183,7 @@ main.c
 
 | 功能 | 状态 | 原因 |
 |------|------|------|
-| VOFA JustFloat 遥测 | 已恢复 | UART3 同时承担遥测输出与指令接收 |
+| VOFA JustFloat 遥测 | 已删除 | 不再需要实时速度曲线监控 |
 | 航向 PID | 已删除 | 未使用 |
 | MPU6050 传感器 | 已禁用 | 航向 PID 依赖项 |
 | `Mecanum_SetMotion()` | 保留但未使用 | 被分段步进运动替代 |

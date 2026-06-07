@@ -183,6 +183,9 @@ void Motor_Init(void)
 	const float kp_arr[MOTOR_COUNT] = { VELOCITY_PID_KP_RR, VELOCITY_PID_KP_RF, VELOCITY_PID_KP_LF, VELOCITY_PID_KP_LR };
 	const float ki_arr[MOTOR_COUNT] = { VELOCITY_PID_KI_RR, VELOCITY_PID_KI_RF, VELOCITY_PID_KI_LF, VELOCITY_PID_KI_LR };
 	const float kd_arr[MOTOR_COUNT] = { VELOCITY_PID_KD_RR, VELOCITY_PID_KD_RF, VELOCITY_PID_KD_LF, VELOCITY_PID_KD_LR };
+	/* Per-wheel position output limits from named macros (RR, RL, FR, FL).
+	 * Wheel naming in enum order: MOTOR_RIGHT_REAR, MOTOR_LEFT_REAR, MOTOR_RIGHT_FRONT, MOTOR_LEFT_FRONT */
+	const float pos_limit_arr[MOTOR_COUNT] = { POSITION_OUTPUT_LIMIT_RR, POSITION_OUTPUT_LIMIT_RL, POSITION_OUTPUT_LIMIT_FR, POSITION_OUTPUT_LIMIT_FL };
 
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
@@ -221,7 +224,7 @@ void Motor_Init(void)
 		motor_state[motor].pos_kd = POSITION_PID_KD;
 		motor_state[motor].pos_integral = 0.0f;
 		motor_state[motor].pos_last_error = 0.0f;
-		motor_state[motor].pos_output_limit = POSITION_OUTPUT_LIMIT * MOTOR_MAX_SPEED_COUNTS_PER_SEC / 100.0f;
+		motor_state[motor].pos_output_limit = pos_limit_arr[motor] * MOTOR_MAX_SPEED_COUNTS_PER_SEC / 100.0f;
 		motor_state[motor].target_bias_counts_per_sec = 0.0f;
 
 		if (HAL_TIM_PWM_Start(motor_hw[motor].pwm_timer, motor_hw[motor].pwm_channel) != HAL_OK)

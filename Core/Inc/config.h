@@ -16,6 +16,9 @@
 /* Default movement percentages (used by legacy commands) */
 #define DEFAULT_STRAFE_PERCENT     30.0f   /* 默认横移速度, unit: % */
 #define DEFAULT_FORWARD_PERCENT    30.0f   /* 默认前进速度, unit: % */
+/* 前/后退实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
+ * 例：命令 30cm 实测 28.75cm -> 30/28.75 ≈ 1.0435f */
+#define FORWARD_CORRECTION_FACTOR  1.0889f /* 前进/后退编码器计数补偿因子, unit: ratio */
 
 /* Approximate wheel travel required for one in-place 360-degree turn.
  * Based on the mecanum chassis geometry; adjust WHEEL_BASE_M / WHEEL_TRACK_M
@@ -31,7 +34,7 @@
 
 /* Position move control */
 #define COMMAND_MOTION_TIMEOUT_S   10U     /* 位置运动超时时间, unit: s */
-#define POSITION_TOLERANCE_COUNTS  10      /* 位置到达容差, unit: counts */
+#define POSITION_TOLERANCE_COUNTS  20      /* 位置到达容差, unit: counts */
 #define POSITION_TIMEOUT_MS        (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 位置运动超时时间, unit: ms */
 #define POSITION_POLL_DELAY_MS     10U     /* 位置轮询周期, unit: ms */
 
@@ -61,22 +64,29 @@
 #define VELOCITY_PID_KI_LR         0.8f   /* 左后轮速度环 Ki, unit: output/(counts) */
 /* KD */
 #define VELOCITY_PID_KD_RR         0.035f   /* 右后轮速度环 Kd, unit: output/(counts/s) */
-#define VELOCITY_PID_KD_RF         0.023f    /* 右前轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_RF         0.032f    /* 右前轮速度环 Kd, unit: output/(counts/s) */
 #define VELOCITY_PID_KD_LF         0.0325f    /* 左前轮速度环 Kd, unit: output/(counts/s) */
-#define VELOCITY_PID_KD_LR         0.02f    /* 左后轮速度环 Kd, unit: output/(counts/s) */
+#define VELOCITY_PID_KD_LR         0.032f    /* 左后轮速度环 Kd, unit: output/(counts/s) */
 
 /* Position (outer) PID default gains */
-#define POSITION_PID_KP            0.5f     /* 位置环 Kp, unit: counts/s per count */
-#define POSITION_PID_KI            0.0f     /* 位置环 Ki, unit: counts/s per (count*s) */
+#define POSITION_PID_KP            1.3f     /* 位置环 Kp, unit: counts/s per count */
+#define POSITION_PID_KI            0.07f     /* 位置环 Ki, unit: counts/s per (count*s) */
 #define POSITION_PID_KD            0.0f     /* 位置环 Kd, unit: counts/s per (count/s) */
 /* Limit the position PID output as a percentage of max motor speed.
- * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s). */
-#define POSITION_OUTPUT_LIMIT      30.0f   /* 位置环输出限幅, unit: % of max speed */
+ * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).
+ * Per-wheel macros so you can tune each independently. */
+#define POSITION_OUTPUT_LIMIT_RR   30.0f   /* 右后轮位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_RL   30.0f   /* 左后轮位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_FR   30.0f   /* 右前轮位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_FL   30.0f   /* 左前轮位置环输出限幅, unit: % of max speed */
 /* Limit the position PID output during startup phase as a percentage of max speed.
  * Startup limits help prevent aggressive position corrections immediately after
  * power-on, before the encoder feedback loop has fully settled.
- * Set this to a lower value than POSITION_OUTPUT_LIMIT for soft start. */
-#define POSITION_OUTPUT_LIMIT_STARTUP 30.0f /* 启动阶段位置环输出限幅, unit: % of max speed */
+ * Set these to lower values than POSITION_OUTPUT_LIMIT_xx for soft start. */
+#define POSITION_OUTPUT_LIMIT_STARTUP_RR 16.7f /* 右后轮启动阶段位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_STARTUP_RL 16.7f /* 左后轮启动阶段位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_STARTUP_FR 16.7f /* 右前轮启动阶段位置环输出限幅, unit: % of max speed */
+#define POSITION_OUTPUT_LIMIT_STARTUP_FL 16.7f /* 左前轮启动阶段位置环输出限幅, unit: % of max speed */
 /* Heading PID removed */
 
 #endif /* __PROJECT_CONFIG_H */

@@ -154,7 +154,7 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
   }
   else
   {
-    wheel_travel = (float)steps * GRID_SIZE_M;
+    wheel_travel = (float)steps * GRID_SIZE_M * FORWARD_CORRECTION_FACTOR;
   }
 
   float wheel_revs = wheel_travel / circumference;
@@ -219,6 +219,14 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
   Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit, pwm_limit);
   Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -pwm_limit, pwm_limit);
   Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -pwm_limit, pwm_limit);
+
+  /* Restore per-wheel position output limits to their normal operation values.
+   * Startup limits (POSITION_OUTPUT_LIMIT_STARTUP_xx) are only for power-on; once
+   * a real position command starts, switch to the full limit. */
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_REAR,  POSITION_OUTPUT_LIMIT_RR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_REAR,   POSITION_OUTPUT_LIMIT_RL);
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_FR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_FL);
 
   if (request->kind == MOTION_KIND_STRAFE)
   {
@@ -544,12 +552,12 @@ void StartTask03(void *argument)
   float dt_s = 0.01f;  /* fixed 10ms */
 
   /* Apply startup position PID output limit to prevent aggressive correction
-   * at power-on. Each motor's position output limit is clamped to
-   * POSITION_OUTPUT_LIMIT_STARTUP (counts/sec). This can be adjusted in config.h. */
-  Motor_SetPositionOutputLimit(MOTOR_RIGHT_REAR,  POSITION_OUTPUT_LIMIT_STARTUP);
-  Motor_SetPositionOutputLimit(MOTOR_LEFT_REAR,   POSITION_OUTPUT_LIMIT_STARTUP);
-  Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_STARTUP);
-  Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_STARTUP);
+   * at power-on. Each motor's position output limit is clamped to its own
+   * POSITION_OUTPUT_LIMIT_STARTUP_xx (counts/sec). Adjust in config.h. */
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_REAR,  POSITION_OUTPUT_LIMIT_STARTUP_RR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_REAR,   POSITION_OUTPUT_LIMIT_STARTUP_RL);
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_STARTUP_FR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_STARTUP_FL);
 
   for(;;)
   {

@@ -146,7 +146,7 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
 
   if (kind == MOTION_KIND_STRAFE)
   {
-    wheel_travel = (float)steps * GRID_SIZE_M * 1.11f;
+    wheel_travel = (float)steps * GRID_SIZE_M * STRAFE_CORRECTION_FACTOR;
   }
   else if (kind == MOTION_KIND_CIRCLE)
   {

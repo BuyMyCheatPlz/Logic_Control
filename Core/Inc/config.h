@@ -132,6 +132,15 @@ if __name__ == "__main__":
 #define POSITION_OUTPUT_LIMIT_STARTUP_RL 16.7f /* 左后轮启动阶段位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_STARTUP_FR 16.7f /* 右前轮启动阶段位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_STARTUP_FL 16.7f /* 左前轮启动阶段位置环输出限幅, unit: % of max speed */
+/* Per-wheel deadzone compensation: extra PWM duty added in the same direction
+ * as the commanded output, to overcome static friction per wheel.
+ * Unit: percent of full PWM duty (0.0f - 100.0f). 0.0f = no extra compensation.
+ * Example: MOTOR_DEADZONE_COMPENSATION_LF 2.0f means +2% extra duty when that wheel is active. */
+#define MOTOR_DEADZONE_COMPENSATION_RR 0.0f
+#define MOTOR_DEADZONE_COMPENSATION_LR 1.0f
+#define MOTOR_DEADZONE_COMPENSATION_RF 0.0f
+#define MOTOR_DEADZONE_COMPENSATION_LF 5.0f /**/
+
 /* Heading PID removed */
 
 #endif /* __PROJECT_CONFIG_H */

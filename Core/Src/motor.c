@@ -37,8 +37,10 @@ typedef struct
 	int32_t last_delta;
 	float feedback_raw;
 	float feedback_filtered;
-		float feedback_last_filtered;
+	float feedback_last_filtered;
 	uint8_t feedback_lpf_initialized;
+	/* per-wheel deadzone compensation (% of full duty) */
+	float deadzone_compensation_percent;
 	/* position PID */
 	int32_t pos_target;
 	uint8_t pos_active;
@@ -186,6 +188,7 @@ void Motor_Init(void)
 	/* Per-wheel position output limits from named macros (RR, RL, FR, FL).
 	 * Wheel naming in enum order: MOTOR_RIGHT_REAR, MOTOR_LEFT_REAR, MOTOR_RIGHT_FRONT, MOTOR_LEFT_FRONT */
 	const float pos_limit_arr[MOTOR_COUNT] = { POSITION_OUTPUT_LIMIT_RR, POSITION_OUTPUT_LIMIT_RL, POSITION_OUTPUT_LIMIT_FR, POSITION_OUTPUT_LIMIT_FL };
+	const float deadzone_comp_arr[MOTOR_COUNT] = { MOTOR_DEADZONE_COMPENSATION_RR, MOTOR_DEADZONE_COMPENSATION_LR, MOTOR_DEADZONE_COMPENSATION_RF, MOTOR_DEADZONE_COMPENSATION_LF };
 
 	for (MotorId_t motor = MOTOR_RIGHT_REAR; motor < MOTOR_COUNT; motor++)
 	{
@@ -226,6 +229,7 @@ void Motor_Init(void)
 		motor_state[motor].pos_last_error = 0.0f;
 		motor_state[motor].pos_output_limit = pos_limit_arr[motor] * MOTOR_MAX_SPEED_COUNTS_PER_SEC / 100.0f;
 		motor_state[motor].target_bias_counts_per_sec = 0.0f;
+		motor_state[motor].deadzone_compensation_percent = deadzone_comp_arr[motor];
 
 		if (HAL_TIM_PWM_Start(motor_hw[motor].pwm_timer, motor_hw[motor].pwm_channel) != HAL_OK)
 		{
@@ -316,7 +320,27 @@ void Motor_SetRawPWM(MotorId_t motor, int32_t pwm)
 {
 	motor = motor_valid_id(motor);
 
-	pwm = motor_clamp_int32(pwm, -(int32_t)MOTOR_PWM_PERIOD, (int32_t)MOTOR_PWM_PERIOD);
+	/* Apply per-wheel deadzone compensation: add extra duty in the same direction
+	 * as the commanded PWM to overcome static friction on that wheel.
+	 * Compensation is configured as percent of full duty (0-100%). */
+	{
+		float comp_percent = motor_state[motor].deadzone_compensation_percent;
+		if (comp_percent > 0.0f && pwm != 0)
+		{
+			int32_t comp_ticks = (int32_t)(comp_percent * MOTOR_PWM_PERIOD / 100.0f);
+			if (comp_ticks < 0) comp_ticks = 0;
+			if (pwm > 0)
+			{
+				pwm += comp_ticks;
+			}
+			else
+			{
+				pwm -= comp_ticks; /* pwm negative, subtract = more negative = stronger */
+			}
+			pwm = motor_clamp_int32(pwm, -(int32_t)MOTOR_PWM_PERIOD, (int32_t)MOTOR_PWM_PERIOD);
+		}
+	}
+
 	if ((pwm <= MOTOR_PWM_DEADBAND_TICKS) && (pwm >= -MOTOR_PWM_DEADBAND_TICKS))
 	{
 		pwm = 0;
@@ -347,6 +371,14 @@ void Motor_SetEncoderInversion(MotorId_t motor, uint8_t inverted)
 {
 	motor = motor_valid_id(motor);
 	motor_state[motor].encoder_inverted = inverted ? 1U : 0U;
+}
+
+void Motor_SetDeadzoneCompensation(MotorId_t motor, float percent)
+{
+	motor = motor_valid_id(motor);
+	if (percent < 0.0f) percent = 0.0f;
+	if (percent > 100.0f) percent = 100.0f;
+	motor_state[motor].deadzone_compensation_percent = percent;
 }
 
 int32_t Motor_GetEncoderDelta(MotorId_t motor)

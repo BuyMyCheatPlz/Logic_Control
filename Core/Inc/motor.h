@@ -52,6 +52,7 @@ void Motor_ResetPID(MotorId_t motor);
 void Motor_UpdateControl(float dt_s);
 void Motor_SetRawPWM(MotorId_t motor, int32_t pwm);
 void Motor_SetEncoderInversion(MotorId_t motor, uint8_t inverted);
+void Motor_SetDeadzoneCompensation(MotorId_t motor, float percent);
 int32_t Motor_GetEncoderDelta(MotorId_t motor);
 float Motor_GetFeedback(MotorId_t motor);
 const MotorPid_t *Motor_GetPID(MotorId_t motor);

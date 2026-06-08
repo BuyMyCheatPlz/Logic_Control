@@ -28,6 +28,9 @@
  * in this file to calibrate the turn distance for your robot.
  */
 #define CIRCLE_TURN_WHEEL_TRAVEL_M (3.14159265359f * (WHEEL_BASE_M + WHEEL_TRACK_M)) /* 原地转一圈时单轮估算行程, unit: m */
+/* 原地旋转实际角度修正因子。因机械摩擦/打滑，实际旋转角度偏小时增大此值。
+ * 例：命令 1圈 实测 1.9圈 -> 1/1.9 ≈ 0.526f */
+#define TURN_CORRECTION_FACTOR 0.505f /* 旋转编码器计数补偿因子, unit: ratio */
 
 /* Command-level output limit: any high-level command (FORWARD/BACKWARD/LEFT/RIGHT/RUN
  * that sets motor percent or starts position motion) will be capped to this percent
@@ -57,12 +60,12 @@
  */
 /* KP */
 #define VELOCITY_PID_KP_RR 2.3f /* 右后轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_RF 2.1f /* 右前轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_LF 2.3f /* 左前轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_LR 2.2f /* 左后轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_RF 2.3f /* 左后轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_LF 2.3f /* 右前轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_LR 5.2f /* 左前轮速度环 Kp, unit: output/(counts/s) */
 /* KI */
 #define VELOCITY_PID_KI_RR 0.8f /* 右后轮速度环 Ki, unit: output/(counts) */
-#define VELOCITY_PID_KI_RF 0.8f /* 右前轮速度环 Ki, unit: output/(counts) */
+#define VELOCITY_PID_KI_RF 0.8f /* 左前轮速度环 Ki, unit: output/(counts) */
 #define VELOCITY_PID_KI_LF 0.8f /* 左前轮速度环 Ki, unit: output/(counts) */
 #define VELOCITY_PID_KI_LR 0.8f /* 左后轮速度环 Ki, unit: output/(counts) */
 /* KD */
@@ -76,7 +79,46 @@
 #define POSITION_PID_KI 0.07f /* 位置环 Ki, unit: counts/s per (count*s) */
 #define POSITION_PID_KD 0.0f  /* 位置环 Kd, unit: counts/s per (count/s) */
 /* Limit the position PID output as a percentage of max motor speed.
- * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).
+ * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).from Maix import FPIOA
+from machine import UART
+import time
+
+def qrcode():
+    # 模拟扫描到二维码
+    class Result:
+        def payload(self):
+            return "2"  # 返回圈数
+    return [Result()]
+
+if __name__ == "__main__":
+    print("初始化...")
+    
+    # 引脚映射
+    fpioa = FPIOA()
+    fpioa.set_function(3, FPIOA.UART1_TXD)  # IO3 -> TX
+    fpioa.set_function(4, FPIOA.UART1_RXD)  # IO4 -> RX
+    
+    # 打开串口
+    uart = UART(UART.UART1, 115200)
+    print("串口已打开")
+    
+    # 主循环
+    while True:
+        res = qrcode()
+        if res:
+            number = res[0].payload()
+            print(f"扫描到: {number}")
+            
+            # 发送 STOP + CIRCLE
+            uart.write(b"STOP\n")
+            time.sleep(0.2)
+            uart.write(f"CIRCLE {number}\n".encode())
+            print(f"已发送: CIRCLE {number}")
+            
+            # 等待执行
+            time.sleep(int(number) * 5)
+        
+        time.sleep(1)
  * Per-wheel macros so you can tune each independently. */
 #define POSITION_OUTPUT_LIMIT_RR 30.0f /* 右后轮位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_RL 30.0f /* 左后轮位置环输出限幅, unit: % of max speed */

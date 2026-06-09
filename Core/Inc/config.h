@@ -15,7 +15,6 @@
 
 /* Default movement percentages (used by legacy commands) */
 #define DEFAULT_STRAFE_PERCENT 30.0f  /* 默认横移速度, unit: % */
-#define DEFAULT_FORWARD_PERCENT 30.0f /* 默认前进速度, unit: % */
 /* 前/后退实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
  * 例：命令 30cm 实测 28.75cm -> 30/28.75 ≈ 1.0435f */
 #define FORWARD_CORRECTION_FACTOR 1.0435f /* 前进/后退编码器计数补偿因子, unit: ratio */
@@ -42,12 +41,10 @@
 #define COMMAND_MOTION_TIMEOUT_S 30U                           /* 位置运动超时时间, unit: s */
 #define POSITION_TOLERANCE_COUNTS 20                           /* 位置到达容差, unit: counts */
 #define POSITION_TIMEOUT_MS (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 位置运动超时时间, unit: ms */
-#define POSITION_POLL_DELAY_MS 10U                             /* 位置轮询周期, unit: ms */
 
-/* Control-loop low-pass filters */
+/* Control-loop low-pass filter */
 /* 0.0f -> no update, 1.0f -> no smoothing. */
 #define MOTOR_FEEDBACK_LPF_ALPHA 0.20f /* 电机反馈低通系数, unit: 0-1 */
-#define HEADING_PITCH_LPF_ALPHA 0.20f  /* 航向/姿态低通系数, unit: 0-1 */
 
 /* Motor / control limits */
 #define MOTOR_PWM_PERIOD 999.0f /* PWM 计数周期上限, unit: ticks */
@@ -79,46 +76,7 @@
 #define POSITION_PID_KI 0.07f /* 位置环 Ki, unit: counts/s per (count*s) */
 #define POSITION_PID_KD 0.0f  /* 位置环 Kd, unit: counts/s per (count/s) */
 /* Limit the position PID output as a percentage of max motor speed.
- * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).from Maix import FPIOA
-from machine import UART
-import time
-
-def qrcode():
-    # 模拟扫描到二维码
-    class Result:
-        def payload(self):
-            return "2"  # 返回圈数
-    return [Result()]
-
-if __name__ == "__main__":
-    print("初始化...")
-
-    # 引脚映射
-    fpioa = FPIOA()
-    fpioa.set_function(3, FPIOA.UART1_TXD)  # IO3 -> TX
-    fpioa.set_function(4, FPIOA.UART1_RXD)  # IO4 -> RX
-
-    # 打开串口
-    uart = UART(UART.UART1, 115200)
-    print("串口已打开")
-
-    # 主循环
-    while True:
-        res = qrcode()
-        if res:
-            number = res[0].payload()
-            print(f"扫描到: {number}")
-
-            # 发送 STOP + CIRCLE
-            uart.write(b"STOP\n")
-            time.sleep(0.2)
-            uart.write(f"CIRCLE {number}\n".encode())
-            print(f"已发送: CIRCLE {number}")
-
-            # 等待执行
-            time.sleep(int(number) * 5)
-
-        time.sleep(1)
+ * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).
  * Per-wheel macros so you can tune each independently. */
 #define POSITION_OUTPUT_LIMIT_RR 30.0f /* 右后轮位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_RL 30.0f /* 左后轮位置环输出限幅, unit: % of max speed */

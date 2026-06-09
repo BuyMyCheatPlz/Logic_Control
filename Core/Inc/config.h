@@ -47,7 +47,6 @@
 /* Control-loop low-pass filters */
 /* 0.0f -> no update, 1.0f -> no smoothing. */
 #define MOTOR_FEEDBACK_LPF_ALPHA 0.20f /* 电机反馈低通系数, unit: 0-1 */
-#define HEADING_PITCH_LPF_ALPHA 0.20f  /* 航向/姿态低通系数, unit: 0-1 */
 
 /* Motor / control limits */
 #define MOTOR_PWM_PERIOD 999.0f /* PWM 计数周期上限, unit: ticks */
@@ -85,68 +84,19 @@
 #define POSITION_PID_KI 0.07f /* 位置环 Ki, unit: counts/s per (count*s) */
 #define POSITION_PID_KD 0.0f  /* 位置环 Kd, unit: counts/s per (count/s) */
 /* Limit the position PID output as a percentage of max motor speed.
- * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).from Maix import FPIOA
-from machine import UART
-import time
-
-def qrcode():
-    # 模拟扫描到二维码
-    class Result:
-        def payload(self):
-            return "2"  # 返回圈数
-    return [Result()]
-
-if __name__ == "__main__":
-    print("初始化...")
-    
-    # 引脚映射
-    fpioa = FPIOA()
-    fpioa.set_function(3, FPIOA.UART1_TXD)  # IO3 -> TX
-    fpioa.set_function(4, FPIOA.UART1_RXD)  # IO4 -> RX
-    
-    # 打开串口
-    uart = UART(UART.UART1, 115200)
-    print("串口已打开")
-    
-    # 主循环
-    while True:
-        res = qrcode()
-        if res:
-            number = res[0].payload()
-            print(f"扫描到: {number}")
-            
-            # 发送 STOP + CIRCLE
-            uart.write(b"STOP\n")
-            time.sleep(0.2)
-            uart.write(f"CIRCLE {number}\n".encode())
-            print(f"已发送: CIRCLE {number}")
-            
-            # 等待执行
-            time.sleep(int(number) * 5)
-        
-        time.sleep(1)
+ * e.g. 100.0f = full speed (MOTOR_MAX_SPEED_COUNTS_PER_SEC counts/s).
  * Per-wheel macros so you can tune each independently. */
 #define POSITION_OUTPUT_LIMIT_RR 30.0f /* 右后轮位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_RL 30.0f /* 左后轮位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_FR 30.0f /* 右前轮位置环输出限幅, unit: % of max speed */
 #define POSITION_OUTPUT_LIMIT_FL 30.0f /* 左前轮位置环输出限幅, unit: % of max speed */
-/* Limit the position PID output during startup phase as a percentage of max speed.
- * Startup limits help prevent aggressive position corrections immediately after
- * power-on, before the encoder feedback loop has fully settled.
- * Set these to lower values than POSITION_OUTPUT_LIMIT_xx for soft start. */
-#define POSITION_OUTPUT_LIMIT_STARTUP_RR 16.7f /* 右后轮启动阶段位置环输出限幅, unit: % of max speed */
-#define POSITION_OUTPUT_LIMIT_STARTUP_RL 16.7f /* 左后轮启动阶段位置环输出限幅, unit: % of max speed */
-#define POSITION_OUTPUT_LIMIT_STARTUP_FR 16.7f /* 右前轮启动阶段位置环输出限幅, unit: % of max speed */
-#define POSITION_OUTPUT_LIMIT_STARTUP_FL 16.7f /* 左前轮启动阶段位置环输出限幅, unit: % of max speed */
 /* Per-wheel deadzone compensation: extra PWM duty added in the same direction
  * as the commanded output, to overcome static friction per wheel.
  * Unit: percent of full PWM duty (0.0f - 100.0f). 0.0f = no extra compensation.
  * Example: MOTOR_DEADZONE_COMPENSATION_LF 2.0f means +2% extra duty when that wheel is active. */
 #define MOTOR_DEADZONE_COMPENSATION_RR 0.0f
-#define MOTOR_DEADZONE_COMPENSATION_LR 2.0f
+#define MOTOR_DEADZONE_COMPENSATION_LR 1.0f
 #define MOTOR_DEADZONE_COMPENSATION_RF 0.0f
-#define MOTOR_DEADZONE_COMPENSATION_LF 5.0f /**/
-
-/* Heading PID removed */
+#define MOTOR_DEADZONE_COMPENSATION_LF 2.0f /**/
 
 #endif /* __PROJECT_CONFIG_H */

@@ -554,10 +554,10 @@ void StartTask03(void *argument)
   /* Apply startup position PID output limit to prevent aggressive correction
    * at power-on. Each motor's position output limit is clamped to its own
    * POSITION_OUTPUT_LIMIT_STARTUP_xx (counts/sec). Adjust in config.h. */
-  Motor_SetPositionOutputLimit(MOTOR_RIGHT_REAR,  POSITION_OUTPUT_LIMIT_STARTUP_RR);
-  Motor_SetPositionOutputLimit(MOTOR_LEFT_REAR,   POSITION_OUTPUT_LIMIT_STARTUP_RL);
-  Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_STARTUP_FR);
-  Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_STARTUP_FL);
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_REAR,  POSITION_OUTPUT_LIMIT_RR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_REAR,   POSITION_OUTPUT_LIMIT_RL);
+  Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_FR);
+  Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_FL);
 
   for(;;)
   {

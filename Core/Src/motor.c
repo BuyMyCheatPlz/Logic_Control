@@ -502,8 +502,10 @@ void Motor_UpdateControl(float dt_s)
 			}
 		}
 
-		/* Safety: if velocity target is zero and no position active, force outputs 0 */
-		if ((pid->target == 0.0f) && (motor_state[motor].pos_active == 0) && (motor_state[motor].target_bias_counts_per_sec == 0.0f))
+		/* Safety: if velocity target is effectively zero (or below configurable
+		 * threshold) and no position active, force outputs 0 to stop wheels.
+		 * SPEED_THRESHOLD_COUNTS_PER_SEC in config.h controls this deadband. */
+		if ((fabsf(effective_target) <= SPEED_THRESHOLD_COUNTS_PER_SEC) && (motor_state[motor].pos_active == 0))
 		{
 			pid->error = 0.0f;
 			pid->integral = 0.0f;

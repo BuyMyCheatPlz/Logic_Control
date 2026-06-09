@@ -49,13 +49,13 @@
                     ▼
                 UART2_HandleCommand()
                 ├── FORWARD/BACKWARD → Mecanum_StepForward()
-                ├── LEFT/RIGHT       → Mecanum_StepStrafe()
+                ├── LEFT/RIGHT       → Mecanum_StepCircle() + Mecanum_StepForward() 组合（先旋转 90°，直行，再转回）
                 ├── CIRCLE           → Mecanum_StepCircle()
                 ├── RUN              → 设置 base_speed_percent
                 └── STOP             → 清除所有运动 + 回复 STOPPED
                     │
                     ▼
-                motion_queue (环形缓冲区，深度 4)
+                motion_queue (环形缓冲区，深度 16)
 ```
 
 **UART3 数据流：**
@@ -186,6 +186,7 @@ main.c
 | VOFA JustFloat 遥测 | 已删除 | 不再需要实时速度曲线监控 |
 | 航向 PID | 已删除 | 未使用 |
 | MPU6050 传感器 | 已禁用 | 航向 PID 依赖项 |
+| `Mecanum_StepStrafe()` | 已删除 | LEFT/RIGHT 改为旋转+直行组合实现 |
 | `Mecanum_SetMotion()` | 保留但未使用 | 被分段步进运动替代 |
 
 ---

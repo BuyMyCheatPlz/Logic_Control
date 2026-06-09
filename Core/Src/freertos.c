@@ -102,7 +102,7 @@ typedef enum
 typedef struct
 {
   MotionKind_t kind;
-  int steps;
+  float steps;
   int dir;
   uint8_t source;   /* 2 = UART2, 3 = UART3 */
 } MotionRequest_t;
@@ -133,9 +133,9 @@ static void MotionQueue_Clear(void);
 static uint8_t Motion_StartRequest(const MotionRequest_t *request);
 static uint8_t Motion_Tick(void);
 
-static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
+static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, float steps)
 {
-  if (steps <= 0)
+  if (steps <= 0.0f)
   {
     return 0U;
   }
@@ -146,15 +146,15 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, int steps)
 
   if (kind == MOTION_KIND_STRAFE)
   {
-    wheel_travel = (float)steps * GRID_SIZE_M * STRAFE_CORRECTION_FACTOR;
+    wheel_travel = steps * GRID_SIZE_M * STRAFE_CORRECTION_FACTOR;
   }
   else if (kind == MOTION_KIND_CIRCLE)
   {
-    wheel_travel = (float)steps * CIRCLE_TURN_WHEEL_TRAVEL_M * TURN_CORRECTION_FACTOR;
+    wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * TURN_CORRECTION_FACTOR;
   }
   else
   {
-    wheel_travel = (float)steps * GRID_SIZE_M * FORWARD_CORRECTION_FACTOR;
+    wheel_travel = steps * GRID_SIZE_M * FORWARD_CORRECTION_FACTOR;
   }
 
   float wheel_revs = wheel_travel / circumference;
@@ -329,29 +329,12 @@ static uint8_t Motion_Tick(void)
   return 1U;
 }
 
-/* steps >=1, dir = -1 左, +1 右, source 2=UART2 3=UART3 */
-static void Mecanum_StepStrafe(int steps, int dir, uint8_t source)
-{
-  MotionRequest_t request;
-
-  if (steps <= 0)
-  {
-    return;
-  }
-
-  request.kind = MOTION_KIND_STRAFE;
-  request.steps = steps;
-  request.dir = dir;
-  request.source = source;
-  (void)MotionQueue_Enqueue(&request);
-}
-
 /* steps >=1, dir = +1 forward, -1 backward, source 2=UART2 3=UART3 */
-static void Mecanum_StepForward(int steps, int dir, uint8_t source)
+static void Mecanum_StepForward(float steps, int dir, uint8_t source)
 {
   MotionRequest_t request;
 
-  if (steps <= 0)
+  if (steps <= 0.0f)
   {
     return;
   }
@@ -364,11 +347,11 @@ static void Mecanum_StepForward(int steps, int dir, uint8_t source)
 }
 
 /* steps >= 1, dir = +1 顺时针, -1 逆时针, source 2=UART2 3=UART3 */
-static void Mecanum_StepCircle(int steps, int dir, uint8_t source)
+static void Mecanum_StepCircle(float steps, int dir, uint8_t source)
 {
   MotionRequest_t request;
 
-  if (steps <= 0)
+  if (steps <= 0.0f)
   {
     return;
   }
@@ -1005,7 +988,10 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepStrafe(steps, +1, 2);
+    /* LEFT N: 先左转90°(逆时针) → 直走N格 → 再右转90°(顺时针)回来 */
+    Mecanum_StepCircle(0.25f, -1, 2);
+    Mecanum_StepForward((float)steps, +1, 2);
+    Mecanum_StepCircle(0.25f, +1, 2);
     return;
   }
 
@@ -1035,7 +1021,10 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepStrafe(steps, -1, 2);
+    /* RIGHT N: 先右转90°(顺时针) → 直走N格 → 再左转90°(逆时针)回来 */
+    Mecanum_StepCircle(0.25f, +1, 2);
+    Mecanum_StepForward((float)steps, +1, 2);
+    Mecanum_StepCircle(0.25f, -1, 2);
     return;
   }
 

@@ -85,20 +85,16 @@ static float base_speed_percent = 0.0f;
 /* UART3 发送函数前置声明 */
 static void UART3_SendText(const char *text);
 
-/* 当使用 Mecanum_SetMotion 设定分轮速度时置位，主循环在此模式下不覆盖各轮目标 */
-static uint8_t mecanum_mode_active = 0;
-/* 最近一次分轮目标（RR, LR, RF, LF） */
-static float mecanum_last_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
+/* Mecanum 分轮模式已移除；mecanum_mode_active / mecanum_last_targets 不再使用 */
 static float heading_pitch_lpf = 0.0f;
 static uint8_t heading_pitch_lpf_initialized = 0;
 
 typedef enum
 {
-  MOTION_KIND_STRAFE = 0,
-  MOTION_KIND_FORWARD = 1,
-  MOTION_KIND_CIRCLE = 2,
-  MOTION_KIND_QUARTER_TURN_LEFT = 3,
-  MOTION_KIND_QUARTER_TURN_RIGHT = 4,
+  MOTION_KIND_FORWARD = 0,
+  MOTION_KIND_CIRCLE = 1,
+  MOTION_KIND_QUARTER_TURN_LEFT = 2,
+  MOTION_KIND_QUARTER_TURN_RIGHT = 3,
 } MotionKind_t;
 
 typedef struct
@@ -122,8 +118,7 @@ static uint8_t motion_active;
 static MotionRequest_t motion_current;
 static uint32_t motion_start_tick;
 
-/* 先声明 Mecanum_SetMotion 以便下面的步骤函数调用 */
-static void Mecanum_SetMotion(float forward, float strafe, float rotation) __attribute__((unused));
+/* Mecanum_SetMotion 已移除 */
 
 /* 物理参数已集中到 config.h */
 static void UART2_SendText(const char *text);
@@ -146,11 +141,7 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, float steps)
 
   float wheel_travel = 0.0f;
 
-  if (kind == MOTION_KIND_STRAFE)
-  {
-    wheel_travel = steps * GRID_SIZE_M * STRAFE_CORRECTION_FACTOR;
-  }
-  else if (kind == MOTION_KIND_CIRCLE)
+  if (kind == MOTION_KIND_CIRCLE)
   {
     wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * TURN_CORRECTION_FACTOR;
   }
@@ -214,7 +205,6 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
   motion_start_tick = osKernelGetTickCount();
 
   base_speed_percent = 0.0f;
-  mecanum_mode_active = 0;
   Motor_SetTargetPercent(MOTOR_RIGHT_REAR, 0.0f);
   Motor_SetTargetPercent(MOTOR_LEFT_REAR, 0.0f);
   Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, 0.0f);
@@ -238,19 +228,7 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
   Motor_SetPositionOutputLimit(MOTOR_RIGHT_FRONT, POSITION_OUTPUT_LIMIT_FR);
   Motor_SetPositionOutputLimit(MOTOR_LEFT_FRONT,  POSITION_OUTPUT_LIMIT_FL);
 
-  if (request->kind == MOTION_KIND_STRAFE)
-  {
-    float rr = 0.0f - (float)request->dir * DEFAULT_STRAFE_PERCENT;
-    float lr = 0.0f + (float)request->dir * DEFAULT_STRAFE_PERCENT;
-    float rf = 0.0f + (float)request->dir * DEFAULT_STRAFE_PERCENT;
-    float lf = 0.0f - (float)request->dir * DEFAULT_STRAFE_PERCENT;
-
-    Motor_SetPositionTarget(MOTOR_RIGHT_REAR,  (rr >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
-    Motor_SetPositionTarget(MOTOR_LEFT_REAR,   (lr >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
-    Motor_SetPositionTarget(MOTOR_RIGHT_FRONT, (rf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
-    Motor_SetPositionTarget(MOTOR_LEFT_FRONT,  (lf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
-  }
-  else if ((request->kind == MOTION_KIND_CIRCLE) || (request->kind == MOTION_KIND_QUARTER_TURN_LEFT) || (request->kind == MOTION_KIND_QUARTER_TURN_RIGHT))
+  if ((request->kind == MOTION_KIND_CIRCLE) || (request->kind == MOTION_KIND_QUARTER_TURN_LEFT) || (request->kind == MOTION_KIND_QUARTER_TURN_RIGHT))
   {
     int32_t signed_counts = (request->dir >= 0) ? (int32_t)target_counts : -(int32_t)target_counts;
 
@@ -397,8 +375,7 @@ static uint8_t IsMotionBusy(void)
   return (motion_active || (motion_queue_count > 0U)) ? 1U : 0U;
 }
 
-// 航向 PID 已移除；保留 Mecanum_SetMotion 声明
-static void Mecanum_SetMotion(float forward, float strafe, float rotation);
+// 航向 PID 和 Mecanum_SetMotion 均已移除
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -577,7 +554,7 @@ void StartTask03(void *argument)
     (void)Motion_Tick();
 
     float heading_correction = 0.0f;
-    uint8_t motion_busy_local = (base_speed_percent != 0.0f) || mecanum_mode_active || motion_active || Motor_HasActivePositionTarget();
+    uint8_t motion_busy_local = (base_speed_percent != 0.0f) || motion_active || Motor_HasActivePositionTarget();
 
     // 航向控制循环已移除 MPU6050 逻辑，保持 heading_correction = 0
     (void)heading_pitch_lpf_initialized;
@@ -598,8 +575,8 @@ void StartTask03(void *argument)
       Motor_ClearTargetBias(MOTOR_LEFT_FRONT);
     }
 
-    // 应用基础速度 + 航向校正差速
-    if (!mecanum_mode_active && (base_speed_percent != 0.0f))
+    // 应用基础速度 + 航向校正差速（mecanum_mode_active 已移除，不再有分轮模式）
+    if (base_speed_percent != 0.0f)
     {
       static float last_applied_percent = 0.0f;
       if (base_speed_percent != last_applied_percent)
@@ -609,27 +586,6 @@ void StartTask03(void *argument)
         Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, base_speed_percent);
         Motor_SetTargetPercent(MOTOR_LEFT_FRONT, base_speed_percent);
         last_applied_percent = base_speed_percent;
-      }
-    }
-    else if (mecanum_mode_active)
-    {
-      static float last_mecanum_targets[MOTOR_COUNT] = {0.0f, 0.0f, 0.0f, 0.0f};
-      static uint8_t mecanum_targets_dirty = 1;
-      if ((mecanum_last_targets[MOTOR_RIGHT_REAR]  != last_mecanum_targets[MOTOR_RIGHT_REAR]) ||
-          (mecanum_last_targets[MOTOR_LEFT_REAR]   != last_mecanum_targets[MOTOR_LEFT_REAR]) ||
-          (mecanum_last_targets[MOTOR_RIGHT_FRONT] != last_mecanum_targets[MOTOR_RIGHT_FRONT]) ||
-          (mecanum_last_targets[MOTOR_LEFT_FRONT]  != last_mecanum_targets[MOTOR_LEFT_FRONT]) ||
-          mecanum_targets_dirty)
-      {
-        Motor_SetTargetPercent(MOTOR_RIGHT_REAR,  mecanum_last_targets[MOTOR_RIGHT_REAR]);
-        Motor_SetTargetPercent(MOTOR_LEFT_REAR,   mecanum_last_targets[MOTOR_LEFT_REAR]);
-        Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, mecanum_last_targets[MOTOR_RIGHT_FRONT]);
-        Motor_SetTargetPercent(MOTOR_LEFT_FRONT,  mecanum_last_targets[MOTOR_LEFT_FRONT]);
-        last_mecanum_targets[MOTOR_RIGHT_REAR]  = mecanum_last_targets[MOTOR_RIGHT_REAR];
-        last_mecanum_targets[MOTOR_LEFT_REAR]   = mecanum_last_targets[MOTOR_LEFT_REAR];
-        last_mecanum_targets[MOTOR_RIGHT_FRONT] = mecanum_last_targets[MOTOR_RIGHT_FRONT];
-        last_mecanum_targets[MOTOR_LEFT_FRONT]  = mecanum_last_targets[MOTOR_LEFT_FRONT];
-        mecanum_targets_dirty = 0;
       }
     }
     else
@@ -653,70 +609,8 @@ void StartTask03(void *argument)
 }
 
 /* USER CODE BEGIN 4 */
-/**
- * @brief 麦克纳姆轮运动控制
- * @param forward: 前进速度 (-100 到 100, 正值前进，负值后退)
- * @param strafe: 平移速度 (-100 到 100, 正值右移，负值左移)
- * @param rotation: 旋转速度 (-100 到 100, 正值顺时针，负值逆时针)
- *
- * 麦克纳姆轮运动学：
- * 右后轮 = forward - strafe - rotation
- * 左后轮 = forward + strafe + rotation
- * 右前轮 = forward + strafe - rotation
- * 左前轮 = forward - strafe + rotation
- */
-static void Mecanum_SetMotion(float forward, float strafe, float rotation)
-{
-  float rr = forward - strafe - rotation;
-  float lr = forward + strafe + rotation;
-  float rf = forward + strafe - rotation;
-  float lf = forward - strafe + rotation;
 
-  float max_speed = 0.0f;
-  if (fabsf(rr) > max_speed) max_speed = fabsf(rr);
-  if (fabsf(lr) > max_speed) max_speed = fabsf(lr);
-  if (fabsf(rf) > max_speed) max_speed = fabsf(rf);
-  if (fabsf(lf) > max_speed) max_speed = fabsf(lf);
-
-  if (max_speed > 100.0f)
-  {
-    float scale = 100.0f / max_speed;
-    rr *= scale;
-    lr *= scale;
-    rf *= scale;
-    lf *= scale;
-  }
-
-  base_speed_percent = (fabsf(forward) + fabsf(strafe) + fabsf(rotation)) / 3.0f;
-
-  Motor_ResetPID(MOTOR_RIGHT_REAR);
-  Motor_ResetPID(MOTOR_LEFT_REAR);
-  Motor_ResetPID(MOTOR_RIGHT_FRONT);
-  Motor_ResetPID(MOTOR_LEFT_FRONT);
-
-  float max_percent = COMMAND_MAX_OUTPUT_PERCENT;
-  if (rr > max_percent) rr = max_percent; else if (rr < -max_percent) rr = -max_percent;
-  if (lr > max_percent) lr = max_percent; else if (lr < -max_percent) lr = -max_percent;
-  if (rf > max_percent) rf = max_percent; else if (rf < -max_percent) rf = -max_percent;
-  if (lf > max_percent) lf = max_percent; else if (lf < -max_percent) lf = -max_percent;
-
-  float pwm_limit_local = (COMMAND_MAX_OUTPUT_PERCENT / 100.0f) * MOTOR_PWM_PERIOD;
-  Motor_SetOutputLimit(MOTOR_RIGHT_REAR,  -pwm_limit_local, pwm_limit_local);
-  Motor_SetOutputLimit(MOTOR_LEFT_REAR,   -pwm_limit_local, pwm_limit_local);
-  Motor_SetOutputLimit(MOTOR_RIGHT_FRONT, -pwm_limit_local, pwm_limit_local);
-  Motor_SetOutputLimit(MOTOR_LEFT_FRONT,  -pwm_limit_local, pwm_limit_local);
-
-  Motor_SetTargetPercent(MOTOR_RIGHT_REAR, rr);
-  Motor_SetTargetPercent(MOTOR_LEFT_REAR, lr);
-  Motor_SetTargetPercent(MOTOR_RIGHT_FRONT, rf);
-  Motor_SetTargetPercent(MOTOR_LEFT_FRONT, lf);
-
-  mecanum_last_targets[MOTOR_RIGHT_REAR]  = rr;
-  mecanum_last_targets[MOTOR_LEFT_REAR]   = lr;
-  mecanum_last_targets[MOTOR_RIGHT_FRONT] = rf;
-  mecanum_last_targets[MOTOR_LEFT_FRONT]  = lf;
-  mecanum_mode_active = 1;
-}
+/* Mecanum_SetMotion 已移除；平移模式不再支持 */
 
 /* Heading PID and associated low-pass filter removed; functionality deprecated. */
 
@@ -864,7 +758,6 @@ static void UART3_HandleCommand(const char *command)
       return;
 
     base_speed_percent = 0.0f;
-    mecanum_mode_active = 0;
     MotionQueue_Clear();
     motion_active = 0U;
     Motor_ClearPositionTarget(MOTOR_RIGHT_REAR);
@@ -962,13 +855,8 @@ static void UART2_HandleCommand(const char *command)
     }
 
     base_speed_percent = 0.0f;
-    mecanum_mode_active = 0;
     MotionQueue_Clear();
     motion_active = 0U;
-    mecanum_last_targets[MOTOR_RIGHT_REAR] = 0.0f;
-    mecanum_last_targets[MOTOR_LEFT_REAR] = 0.0f;
-    mecanum_last_targets[MOTOR_RIGHT_FRONT] = 0.0f;
-    mecanum_last_targets[MOTOR_LEFT_FRONT] = 0.0f;
     Motor_ClearPositionTarget(MOTOR_RIGHT_REAR);
     Motor_ClearPositionTarget(MOTOR_LEFT_REAR);
     Motor_ClearPositionTarget(MOTOR_RIGHT_FRONT);
@@ -1159,7 +1047,6 @@ static void UART2_HandleCommand(const char *command)
     }
 
     base_speed_percent = (float)parsed;
-    mecanum_mode_active = 0;
     Motor_ResetPID(MOTOR_RIGHT_REAR);
     Motor_ResetPID(MOTOR_LEFT_REAR);
     Motor_ResetPID(MOTOR_RIGHT_FRONT);

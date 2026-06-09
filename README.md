@@ -114,7 +114,6 @@
 | 类型 | 功能 | 方向 |
 |------|------|------|
 | MOTION_KIND_FORWARD | 前进/后退 n 格 | +1 = 前, -1 = 后 |
-| MOTION_KIND_STRAFE | 左/右横移 n 格 | +1 = 左, -1 = 右 |
 | MOTION_KIND_CIRCLE | 原地转圈 n 次 | +1 = 顺时针 |
 | MOTION_KIND_QUARTER_TURN_LEFT | LEFT 命令 90° 转向 | -1 = 逆时针 |
 | MOTION_KIND_QUARTER_TURN_RIGHT | RIGHT 命令 90° 转向 | +1 = 顺时针 |
@@ -162,7 +161,6 @@ Motor_UpdateControl(dt_s)  ← 每 10ms 调用
 **运动参数：**
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `DEFAULT_STRAFE_PERCENT` | 30 | 横移默认速度 (%) |
 | `DEFAULT_FORWARD_PERCENT` | 30 | 直行默认速度 (%) |
 | `COMMAND_MAX_OUTPUT_PERCENT` | 30 | 全局输出限幅 (%) |
 | `POSITION_TOLERANCE_COUNTS` | 20 | 位置到达容差 |
@@ -189,7 +187,7 @@ main.c
 | 航向 PID | 已删除 | 未使用 |
 | MPU6050 传感器 | 已禁用 | 航向 PID 依赖项 |
 | `Mecanum_StepStrafe()` | 已删除 | LEFT/RIGHT 改为旋转+直行组合实现（无回正） |
-| `Mecanum_SetMotion()` | 保留但未使用 | 被分段步进运动替代 |
+| `Mecanum_SetMotion()` | 已删除 | 平移功能移除，不再需要 |
 
 ---
 
@@ -297,7 +295,6 @@ scripts/build_and_flash.sh Debug
 | 宏 | 默认值 | 作用 |
 |---|---|---|
 | `FORWARD_CORRECTION_FACTOR` | 1.0435f | 前进/后退编码器补偿 |
-| `STRAFE_CORRECTION_FACTOR` | 1.0656f | 左/右横移编码器补偿 |
 | `TURN_CORRECTION_FACTOR` | 0.508f | CIRCLE 原地旋转编码器补偿 |
 | `QUARTER_TURN_LEFT_CORRECTION_FACTOR` | 0.5117f | LEFT 命令 90° 转向编码器补偿 |
 | `QUARTER_TURN_RIGHT_CORRECTION_FACTOR` | 0.5200f | RIGHT 命令 90° 转向编码器补偿 |

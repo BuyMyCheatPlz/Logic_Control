@@ -13,14 +13,9 @@
 #define ENCODER_QUADRATURE 4 /* 编码器四倍频计数, unit: counts/line */
 #define GEAR_RATIO 20        /* 减速比, unit: ratio */
 
-/* Default movement percentages (used by legacy commands) */
-#define DEFAULT_STRAFE_PERCENT 30.0f  /* 默认横移速度, unit: % */
-/* 前/后退实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
+/* 前进/后退实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
  * 例：命令 30cm 实测 28.75cm -> 30/28.75 ≈ 1.0435f */
 #define FORWARD_CORRECTION_FACTOR 1.0435f /* 前进/后退编码器计数补偿因子, unit: ratio */
-/* 左/右横移实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
- * 例：命令 60cm 实测 62.5cm -> 60/62.5 = 0.96 -> 1.11f * 0.96 ≈ 1.0656f */
-#define STRAFE_CORRECTION_FACTOR 1.0656f /* 左/右横移编码器计数补偿因子, unit: ratio */
 
 /* Approximate wheel travel required for one in-place 360-degree turn.
  * Based on the mecanum chassis geometry; adjust WHEEL_BASE_M / WHEEL_TRACK_M

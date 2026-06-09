@@ -62,7 +62,7 @@
 #define VELOCITY_PID_KP_RR 2.3f /* 右后轮速度环 Kp, unit: output/(counts/s) */
 #define VELOCITY_PID_KP_RF 2.3f /* 左后轮速度环 Kp, unit: output/(counts/s) */
 #define VELOCITY_PID_KP_LF 2.3f /* 右前轮速度环 Kp, unit: output/(counts/s) */
-#define VELOCITY_PID_KP_LR 5.2f /* 左前轮速度环 Kp, unit: output/(counts/s) */
+#define VELOCITY_PID_KP_LR 2.3f /* 左前轮速度环 Kp, unit: output/(counts/s) */
 /* KI */
 #define VELOCITY_PID_KI_RR 0.8f /* 右后轮速度环 Ki, unit: output/(counts) */
 #define VELOCITY_PID_KI_RF 0.8f /* 左前轮速度环 Ki, unit: output/(counts) */

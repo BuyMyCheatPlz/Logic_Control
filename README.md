@@ -25,7 +25,7 @@
 
 - **defaultTask** — 空闲占位，无实际业务
 - **Send_Data** — 从 `uart2_cmd_queue` 出队指令，调用 `UART2_HandleCommand()` 分发
-- **Proccess_Data** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加 `POSITION_OUTPUT_LIMIT_STARTUP` 限制位置环输出
+- **Proccess_Data** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加每轮独立的位置环输出限幅（`POSITION_OUTPUT_LIMIT_RR/RL/FR/FL`）
 
 ### 第二层：通信层（双 UART 通道）
 
@@ -150,10 +150,10 @@ Motor_UpdateControl(dt_s)  ← 每 10ms 调用
 **机器人几何：**
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `GRID_SIZE_M` | 0.30 | 单格长度 (m) |
+| `GRID_SIZE_M` | 0.15 | 单格长度 (m) |
 | `WHEEL_DIAM_M` | 0.06 | 轮子直径 (m) |
-| `WHEEL_BASE_M` | 0.24 | 前后轮中心距 (m) |
-| `WHEEL_TRACK_M` | 0.20 | 左右轮中心距 (m) |
+| `WHEEL_BASE_M` | 0.1226 | 前后轮中心距 (m) |
+| `WHEEL_TRACK_M` | 0.175 | 左右轮中心距 (m) |
 
 **编码器：** ENCODER_LINES=13 × QUADRATURE=4 × GEAR_RATIO=20 = **1040 counts/rev（轮端）**
 
@@ -163,9 +163,9 @@ Motor_UpdateControl(dt_s)  ← 每 10ms 调用
 | `DEFAULT_STRAFE_PERCENT` | 30 | 横移默认速度 (%) |
 | `DEFAULT_FORWARD_PERCENT` | 30 | 直行默认速度 (%) |
 | `COMMAND_MAX_OUTPUT_PERCENT` | 30 | 全局输出限幅 (%) |
-| `POSITION_TOLERANCE_COUNTS` | 10 | 位置到达容差 |
-| `POSITION_TIMEOUT_MS` | 10000 | 位置运动超时 (ms) |
-| `POSITION_OUTPUT_LIMIT_STARTUP` | 16.7 | 启动时位置环输出限幅 (% of max speed)，防止瞬间剧烈修正 |
+| `POSITION_TOLERANCE_COUNTS` | 20 | 位置到达容差 |
+| `POSITION_TIMEOUT_MS` | 10000 (10s) | 位置运动超时 (ms) |
+| `POSITION_OUTPUT_LIMIT_RR/RL/FR/FL` | 30 | 每轮独立位置环输出限幅 (% of max speed)，防止瞬间剧烈修正 |
 
 ### 文件依赖图
 

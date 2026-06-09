@@ -28,8 +28,8 @@
  */
 #define CIRCLE_TURN_WHEEL_TRAVEL_M (3.14159265359f * (WHEEL_BASE_M + WHEEL_TRACK_M)) /* 原地转一圈时单轮估算行程, unit: m */
 /* 原地旋转实际角度修正因子。因机械摩擦/打滑，实际旋转角度偏小时增大此值。
- * 例：命令 1圈 实测 1.9圈 -> 1/1.9 ≈ 0.526f */
-#define TURN_CORRECTION_FACTOR 0.508f /* 旋转编码器计数补偿因子, unit: ratio */
+ * 例：命令 0.25圈(90°) 实测 86° -> 90/86 ≈ 1.0465, 0.508*1.0465 ≈ 0.5316f */
+#define TURN_CORRECTION_FACTOR 0.5316f /* 旋转编码器计数补偿因子, unit: ratio */
 
 /* Command-level output limit: any high-level command (FORWARD/BACKWARD/LEFT/RIGHT/RUN
  * that sets motor percent or starts position motion) will be capped to this percent
@@ -38,7 +38,7 @@
 #define COMMAND_MAX_OUTPUT_PERCENT 30.0f /* 高层命令最大输出限幅, unit: % */
 
 /* Position move control */
-#define COMMAND_MOTION_TIMEOUT_S 30U                           /* 非circle位置运动超时时间, unit: s */
+#define COMMAND_MOTION_TIMEOUT_S 10U                           /* 非circle位置运动超时时间, unit: s */
 #define POSITION_TOLERANCE_COUNTS 20                           /* 位置到达容差, unit: counts */
 #define POSITION_TIMEOUT_MS (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 非circle位置运动超时时间, unit: ms */
 #define CIRCLE_MOTION_TIMEOUT_S 30U                            /* circle位置运动超时时间, unit: s */

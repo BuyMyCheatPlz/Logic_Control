@@ -287,7 +287,8 @@ static uint8_t Motion_Tick(void)
     }
   }
 
-  if (!all_reached && ((osKernelGetTickCount() - motion_start_tick) <= POSITION_TIMEOUT_MS))
+  uint32_t timeout = (motion_current.kind == MOTION_KIND_CIRCLE) ? CIRCLE_TIMEOUT_MS : POSITION_TIMEOUT_MS;
+  if (!all_reached && ((osKernelGetTickCount() - motion_start_tick) <= timeout))
   {
     return 0U;
   }

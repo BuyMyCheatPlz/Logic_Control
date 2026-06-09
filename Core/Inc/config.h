@@ -38,9 +38,11 @@
 #define COMMAND_MAX_OUTPUT_PERCENT 30.0f /* 高层命令最大输出限幅, unit: % */
 
 /* Position move control */
-#define COMMAND_MOTION_TIMEOUT_S 30U                           /* 位置运动超时时间, unit: s */
+#define COMMAND_MOTION_TIMEOUT_S 30U                           /* 非circle位置运动超时时间, unit: s */
 #define POSITION_TOLERANCE_COUNTS 20                           /* 位置到达容差, unit: counts */
-#define POSITION_TIMEOUT_MS (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 位置运动超时时间, unit: ms */
+#define POSITION_TIMEOUT_MS (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 非circle位置运动超时时间, unit: ms */
+#define CIRCLE_MOTION_TIMEOUT_S 30U                            /* circle位置运动超时时间, unit: s */
+#define CIRCLE_TIMEOUT_MS (CIRCLE_MOTION_TIMEOUT_S * 1000U)    /* circle位置运动超时时间, unit: ms */
 
 /* Control-loop low-pass filter */
 /* 0.0f -> no update, 1.0f -> no smoothing. */

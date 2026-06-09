@@ -30,7 +30,7 @@
 #define CIRCLE_TURN_WHEEL_TRAVEL_M (3.14159265359f * (WHEEL_BASE_M + WHEEL_TRACK_M)) /* 原地转一圈时单轮估算行程, unit: m */
 /* 原地旋转实际角度修正因子。因机械摩擦/打滑，实际旋转角度偏小时增大此值。
  * 例：命令 1圈 实测 1.9圈 -> 1/1.9 ≈ 0.526f */
-#define TURN_CORRECTION_FACTOR 0.505f /* 旋转编码器计数补偿因子, unit: ratio */
+#define TURN_CORRECTION_FACTOR 0.508f /* 旋转编码器计数补偿因子, unit: ratio */
 
 /* Command-level output limit: any high-level command (FORWARD/BACKWARD/LEFT/RIGHT/RUN
  * that sets motor percent or starts position motion) will be capped to this percent
@@ -39,7 +39,7 @@
 #define COMMAND_MAX_OUTPUT_PERCENT 30.0f /* 高层命令最大输出限幅, unit: % */
 
 /* Position move control */
-#define COMMAND_MOTION_TIMEOUT_S 10U                           /* 位置运动超时时间, unit: s */
+#define COMMAND_MOTION_TIMEOUT_S 30U                           /* 位置运动超时时间, unit: s */
 #define POSITION_TOLERANCE_COUNTS 20                           /* 位置到达容差, unit: counts */
 #define POSITION_TIMEOUT_MS (COMMAND_MOTION_TIMEOUT_S * 1000U) /* 位置运动超时时间, unit: ms */
 #define POSITION_POLL_DELAY_MS 10U                             /* 位置轮询周期, unit: ms */
@@ -92,32 +92,32 @@ def qrcode():
 
 if __name__ == "__main__":
     print("初始化...")
-    
+
     # 引脚映射
     fpioa = FPIOA()
     fpioa.set_function(3, FPIOA.UART1_TXD)  # IO3 -> TX
     fpioa.set_function(4, FPIOA.UART1_RXD)  # IO4 -> RX
-    
+
     # 打开串口
     uart = UART(UART.UART1, 115200)
     print("串口已打开")
-    
+
     # 主循环
     while True:
         res = qrcode()
         if res:
             number = res[0].payload()
             print(f"扫描到: {number}")
-            
+
             # 发送 STOP + CIRCLE
             uart.write(b"STOP\n")
             time.sleep(0.2)
             uart.write(f"CIRCLE {number}\n".encode())
             print(f"已发送: CIRCLE {number}")
-            
+
             # 等待执行
             time.sleep(int(number) * 5)
-        
+
         time.sleep(1)
  * Per-wheel macros so you can tune each independently. */
 #define POSITION_OUTPUT_LIMIT_RR 30.0f /* 右后轮位置环输出限幅, unit: % of max speed */

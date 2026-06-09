@@ -97,8 +97,8 @@
  * Unit: percent of full PWM duty (0.0f - 100.0f). 0.0f = no extra compensation.
  * Example: MOTOR_DEADZONE_COMPENSATION_LF 2.0f means +2% extra duty when that wheel is active. */
 #define MOTOR_DEADZONE_COMPENSATION_RR 0.0f
-#define MOTOR_DEADZONE_COMPENSATION_LR 1.0f
+#define MOTOR_DEADZONE_COMPENSATION_LR 2.5f
 #define MOTOR_DEADZONE_COMPENSATION_RF 0.0f
-#define MOTOR_DEADZONE_COMPENSATION_LF 2.0f /**/
+#define MOTOR_DEADZONE_COMPENSATION_LF 2.5f /**/
 
 #endif /* __PROJECT_CONFIG_H */

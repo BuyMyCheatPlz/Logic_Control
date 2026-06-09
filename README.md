@@ -11,28 +11,29 @@
 │               FreeRTOS 调度器                     │
 │                                                  │
 │  ┌────────────┐ ┌────────────┐ ┌───────────────┐│
-│  │defaultTask │ │ Send_Data  │ │ Proccess_Data ││
-│  │空闲, 1ms   │ │ 命令分发   │ │ 运动控制      ││
-│  │stack 128×4 │ │ stack 256×4│ │ stack 512×4   ││
-│  │prio Normal │ │ prio Low   │ │ prio Low      ││
+│  │defaultTask │ │ StartTask02│ │ StartTask03   ││
+│  │空闲, 1ms   │ │(Send_Data) │ │(Proccess_Data)││
+│  │stack 128×4 │ │ 命令分发   │ │ 运动控制      ││
+│  │prio Normal │ │ stack 256×4│ │ stack 512×4   ││
+│  │            │ │ prio Low   │ │ prio Low      ││
 │  └────────────┘ └────────────┘ └───────────────┘│
 │                      │ 1ms 轮询     │ 10ms 周期   │
 │                      ▼              ▼             │
 │               uart2_cmd_queue  Motion_Tick()      │
-│               环形缓冲区深度4   Motor_UpdateCtrl() │
+│               环形缓冲区深度16  Motor_UpdateCtrl() │
 └──────────────────────────────────────────────────┘
 ```
 
-- **defaultTask** — 空闲占位，无实际业务
-- **Send_Data** — 从 `uart2_cmd_queue` 出队指令，调用 `UART2_HandleCommand()` 分发
-- **Proccess_Data** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加每轮独立的位置环输出限幅（`POSITION_OUTPUT_LIMIT_RR/RL/FR/FL`）
+- **defaultTask** — 空闲占位，每 1ms 循环一次，无实际业务
+- **StartTask02 (Send_Data)** — 从 `uart2_cmd_queue` 出队指令，调用 `UART2_HandleCommand()` 分发
+- **StartTask03 (Proccess_Data)** — 固定 10ms 周期：调用 `Motion_Tick()` 驱动运动队列 + `Motor_UpdateControl()` 驱动四轮 PID，启动时施加每轮独立的位置环输出限幅（`POSITION_OUTPUT_LIMIT_RR/RL/FR/FL`）
 
 ### 第二层：通信层（双 UART 通道）
 
 | 通道 | 物理接口 | 职责 | 数据格式 |
 |------|----------|------|----------|
 | UART2 | USART2 | 主运动序列通道 | 数组：`{FORWARD 3,LEFT 2,BACKWARD 1}` 或单行：`RUN 50` / `STOP` |
-| UART3 | USART3 | 旋转/停止独立通道 | 单行：`CIRCLE` / `CIRCLE n` / `STOP` |
+| UART3 | USART3 | 旋转/停止独立通道 | 单行：`CIRCLE` / `CIRCLE n` / `STOP`（ISR 中直接处理） |
 
 **UART2 数据流：**
 
@@ -107,7 +108,7 @@
 
 **互斥规则：**
 - 同一时刻仅一个 motion 在执行
-- UART3 `CIRCLE` 在 `IsMotionBusy()` 为真时被静默忽略
+- UART3 `CIRCLE` 不受互斥限制，直接入队执行
 - `STOP` 命令（无论来自 UART2/UART3）不受互斥限制，立即清除
 
 **运动类型：**
@@ -297,7 +298,7 @@ scripts/build_and_flash.sh Debug
 | `FORWARD_CORRECTION_FACTOR` | 1.0435f | 前进/后退编码器补偿 |
 | `TURN_CORRECTION_FACTOR` | 0.508f | CIRCLE 原地旋转编码器补偿 |
 | `QUARTER_TURN_LEFT_CORRECTION_FACTOR` | 0.5117f | LEFT 命令 90° 转向编码器补偿 |
-| `QUARTER_TURN_RIGHT_CORRECTION_FACTOR` | 0.5200f | RIGHT 命令 90° 转向编码器补偿 |
+| `QUARTER_TURN_RIGHT_CORRECTION_FACTOR` | 0.5318f | RIGHT 命令 90° 转向编码器补偿 |
 
 LEFT/RIGHT 的 quarter-turn 使用独立因子，与 CIRCLE 的 `TURN_CORRECTION_FACTOR` 分离调校。多转则减小因子，少转则增大因子。
 

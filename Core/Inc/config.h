@@ -15,7 +15,7 @@
 
 /* 前进/后退实际距离修正因子。因机械摩擦/打滑，实际行走距离偏短时增大此值。
  * 例：命令 30cm 实测 28.75cm -> 30/28.75 ≈ 1.0435f */
-#define FORWARD_CORRECTION_FACTOR 1.0435f /* 前进/后退编码器计数补偿因子, unit: ratio */
+#define FORWARD_CORRECTION_FACTOR 1.0245f /* 前进/后退编码器计数补偿因子, unit: ratio */
 
 /* Approximate wheel travel required for one in-place 360-degree turn.
  * Based on the mecanum chassis geometry; adjust WHEEL_BASE_M / WHEEL_TRACK_M
@@ -27,7 +27,7 @@
 #define TURN_CORRECTION_FACTOR 0.508f /* CIRCLE旋转编码器计数补偿因子, unit: ratio */
 /* LEFT/RIGHT 命令中的 90° quarter-turn 使用独立修正因子，与 CIRCLE 分离调校。
  * LEFT 和 RIGHT 各自独立，可分别调校编码器补偿。 */
-#define QUARTER_TURN_LEFT_CORRECTION_FACTOR  0.5117f /* LEFT quarter-turn编码器补偿因子, unit: ratio (多转则减小) */
+#define QUARTER_TURN_LEFT_CORRECTION_FACTOR 0.5117f  /* LEFT quarter-turn编码器补偿因子, unit: ratio (多转则减小) */
 #define QUARTER_TURN_RIGHT_CORRECTION_FACTOR 0.5200f /* RIGHT quarter-turn编码器补偿因子, unit: ratio (多转则减小) */
 /* quarter-turn 单次转动的圈数步长。默认 0.25 即 90°。增大则多转，
  * 减小则少转，用于在机械打滑/摩擦导致转动不足或过量时微调。 */
@@ -59,7 +59,7 @@
  * this threshold, PWM output is forced to 0 so the wheels stop. This applies to
  * all motion commands (RUN, FORWARD, BACKWARD, LEFT, RIGHT, CIRCLE, mecanum).
  * Increase if motors still creep at very low speed targets. Unit: counts/s */
-#define SPEED_THRESHOLD_COUNTS_PER_SEC 50.0f   /* 速度死区阈值, unit: counts/s */
+#define SPEED_THRESHOLD_COUNTS_PER_SEC 50.0f /* 速度死区阈值, unit: counts/s */
 
 /* Velocity (inner) PID default gains per wheel.
  * Use explicit macros per wheel so you can tune each independently.

@@ -1016,10 +1016,9 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    /* LEFT N: 先左转90°(逆时针) → 直走N格 → 再右转90°(顺时针)回来 */
+    /* LEFT N: 左转90°(逆时针) → 直走N格 */
     Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, -1, 2, MOTION_KIND_QUARTER_TURN_LEFT);
     Mecanum_StepForward((float)steps, +1, 2);
-    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, +1, 2, MOTION_KIND_QUARTER_TURN_LEFT);
     return;
   }
 
@@ -1049,10 +1048,9 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    /* RIGHT N: 先右转90°(顺时针) → 直走N格 → 再左转90°(逆时针)回来 */
+    /* RIGHT N: 右转90°(顺时针) → 直走N格 */
     Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, +1, 2, MOTION_KIND_QUARTER_TURN_RIGHT);
     Mecanum_StepForward((float)steps, +1, 2);
-    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, -1, 2, MOTION_KIND_QUARTER_TURN_RIGHT);
     return;
   }
 

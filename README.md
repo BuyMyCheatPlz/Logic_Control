@@ -49,7 +49,7 @@
                     ▼
                 UART2_HandleCommand()
                 ├── FORWARD/BACKWARD → Mecanum_StepForward()
-                ├── LEFT/RIGHT       → Mecanum_StepQuarterTurn() + Mecanum_StepForward() 组合（先 90° 转向前进方向，直行，再90°转回）QUARTER_TURN_LEFT/RIGHT_CORRECTION_FACTOR 独立校准
+                ├── LEFT/RIGHT       → Mecanum_StepQuarterTurn() + Mecanum_StepForward() 组合（先90°转向前进方向，再直行，不再转回）QUARTER_TURN_LEFT/RIGHT_CORRECTION_FACTOR 独立校准
                 ├── CIRCLE           → Mecanum_StepCircle()
                 ├── RUN              → 设置 base_speed_percent
                 └── STOP             → 清除所有运动 + 回复 STOPPED
@@ -188,7 +188,7 @@ main.c
 | VOFA JustFloat 遥测 | 已删除 | 不再需要实时速度曲线监控 |
 | 航向 PID | 已删除 | 未使用 |
 | MPU6050 传感器 | 已禁用 | 航向 PID 依赖项 |
-| `Mecanum_StepStrafe()` | 已删除 | LEFT/RIGHT 改为旋转+直行组合实现 |
+| `Mecanum_StepStrafe()` | 已删除 | LEFT/RIGHT 改为旋转+直行组合实现（无回正） |
 | `Mecanum_SetMotion()` | 保留但未使用 | 被分段步进运动替代 |
 
 ---

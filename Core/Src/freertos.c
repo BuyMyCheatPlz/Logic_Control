@@ -329,23 +329,6 @@ static uint8_t Motion_Tick(void)
   return 1U;
 }
 
-/* steps >=1, dir = -1 左, +1 右, source 2=UART2 3=UART3 */
-static void Mecanum_StepStrafe(float steps, int dir, uint8_t source)
-{
-  MotionRequest_t request;
-
-  if (steps <= 0.0f)
-  {
-    return;
-  }
-
-  request.kind = MOTION_KIND_STRAFE;
-  request.steps = steps;
-  request.dir = dir;
-  request.source = source;
-  (void)MotionQueue_Enqueue(&request);
-}
-
 /* steps >=1, dir = +1 forward, -1 backward, source 2=UART2 3=UART3 */
 static void Mecanum_StepForward(float steps, int dir, uint8_t source)
 {

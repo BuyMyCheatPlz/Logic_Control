@@ -97,7 +97,8 @@ typedef enum
   MOTION_KIND_STRAFE = 0,
   MOTION_KIND_FORWARD = 1,
   MOTION_KIND_CIRCLE = 2,
-  MOTION_KIND_QUARTER_TURN = 3,
+  MOTION_KIND_QUARTER_TURN_LEFT = 3,
+  MOTION_KIND_QUARTER_TURN_RIGHT = 4,
 } MotionKind_t;
 
 typedef struct
@@ -153,9 +154,13 @@ static uint32_t Motion_ComputeTargetCounts(MotionKind_t kind, float steps)
   {
     wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * TURN_CORRECTION_FACTOR;
   }
-  else if (kind == MOTION_KIND_QUARTER_TURN)
+  else if (kind == MOTION_KIND_QUARTER_TURN_LEFT)
   {
-    wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * QUARTER_TURN_CORRECTION_FACTOR;
+    wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * QUARTER_TURN_LEFT_CORRECTION_FACTOR;
+  }
+  else if (kind == MOTION_KIND_QUARTER_TURN_RIGHT)
+  {
+    wheel_travel = steps * CIRCLE_TURN_WHEEL_TRAVEL_M * QUARTER_TURN_RIGHT_CORRECTION_FACTOR;
   }
   else
   {
@@ -245,7 +250,7 @@ static uint8_t Motion_StartRequest(const MotionRequest_t *request)
     Motor_SetPositionTarget(MOTOR_RIGHT_FRONT, (rf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
     Motor_SetPositionTarget(MOTOR_LEFT_FRONT,  (lf >= 0.0f) ? (int32_t)target_counts : -(int32_t)target_counts);
   }
-  else if ((request->kind == MOTION_KIND_CIRCLE) || (request->kind == MOTION_KIND_QUARTER_TURN))
+  else if ((request->kind == MOTION_KIND_CIRCLE) || (request->kind == MOTION_KIND_QUARTER_TURN_LEFT) || (request->kind == MOTION_KIND_QUARTER_TURN_RIGHT))
   {
     int32_t signed_counts = (request->dir >= 0) ? (int32_t)target_counts : -(int32_t)target_counts;
 
@@ -292,7 +297,7 @@ static uint8_t Motion_Tick(void)
     }
   }
 
-  uint32_t timeout = ((motion_current.kind == MOTION_KIND_CIRCLE) || (motion_current.kind == MOTION_KIND_QUARTER_TURN)) ? CIRCLE_TIMEOUT_MS : POSITION_TIMEOUT_MS;
+  uint32_t timeout = ((motion_current.kind == MOTION_KIND_CIRCLE) || (motion_current.kind == MOTION_KIND_QUARTER_TURN_LEFT) || (motion_current.kind == MOTION_KIND_QUARTER_TURN_RIGHT)) ? CIRCLE_TIMEOUT_MS : POSITION_TIMEOUT_MS;
   if (!all_reached && ((osKernelGetTickCount() - motion_start_tick) <= timeout))
   {
     return 0U;
@@ -353,7 +358,24 @@ static void Mecanum_StepForward(float steps, int dir, uint8_t source)
 }
 
 /* steps >= 1, dir = +1 顺时针, -1 逆时针, source 2=UART2 3=UART3 */
-static void Mecanum_StepCircle(float steps, int dir, uint8_t source, MotionKind_t kind)
+static void Mecanum_StepCircle(float steps, int dir, uint8_t source)
+{
+  MotionRequest_t request;
+
+  if (steps <= 0.0f)
+  {
+    return;
+  }
+
+  request.kind = MOTION_KIND_CIRCLE;
+  request.steps = steps;
+  request.dir = dir;
+  request.source = source;
+  (void)MotionQueue_Enqueue(&request);
+}
+
+/* steps >= 0.25, dir = +1 顺时针, -1 逆时针, source 2=UART2 3=UART3, kind=LEFT/RIGHT */
+static void Mecanum_StepQuarterTurn(float steps, int dir, uint8_t source, MotionKind_t kind)
 {
   MotionRequest_t request;
 
@@ -889,7 +911,7 @@ static void UART3_HandleCommand(const char *command)
       steps = (int)parsed;
     }
 
-    Mecanum_StepCircle(steps, +1, 3, MOTION_KIND_CIRCLE);
+    Mecanum_StepCircle(steps, +1, 3);
     return;
   }
 }
@@ -995,9 +1017,9 @@ static void UART2_HandleCommand(const char *command)
       steps = (int)parsed;
     }
     /* LEFT N: 先左转90°(逆时针) → 直走N格 → 再右转90°(顺时针)回来 */
-    Mecanum_StepCircle(0.25f, -1, 2, MOTION_KIND_QUARTER_TURN);
+    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, -1, 2, MOTION_KIND_QUARTER_TURN_LEFT);
     Mecanum_StepForward((float)steps, +1, 2);
-    Mecanum_StepCircle(0.25f, +1, 2, MOTION_KIND_QUARTER_TURN);
+    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, +1, 2, MOTION_KIND_QUARTER_TURN_LEFT);
     return;
   }
 
@@ -1028,9 +1050,9 @@ static void UART2_HandleCommand(const char *command)
       steps = (int)parsed;
     }
     /* RIGHT N: 先右转90°(顺时针) → 直走N格 → 再左转90°(逆时针)回来 */
-    Mecanum_StepCircle(0.25f, +1, 2, MOTION_KIND_QUARTER_TURN);
+    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, +1, 2, MOTION_KIND_QUARTER_TURN_RIGHT);
     Mecanum_StepForward((float)steps, +1, 2);
-    Mecanum_StepCircle(0.25f, -1, 2, MOTION_KIND_QUARTER_TURN);
+    Mecanum_StepQuarterTurn(QUARTER_TURN_STEPS, -1, 2, MOTION_KIND_QUARTER_TURN_RIGHT);
     return;
   }
 
@@ -1106,7 +1128,7 @@ static void UART2_HandleCommand(const char *command)
       }
       steps = (int)parsed;
     }
-    Mecanum_StepCircle(steps, +1, 2, MOTION_KIND_CIRCLE);
+    Mecanum_StepCircle(steps, +1, 2);
     return;
   }
 

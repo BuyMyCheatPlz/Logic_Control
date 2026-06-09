@@ -29,9 +29,14 @@
 #define CIRCLE_TURN_WHEEL_TRAVEL_M (3.14159265359f * (WHEEL_BASE_M + WHEEL_TRACK_M)) /* 原地转一圈时单轮估算行程, unit: m */
 /* 原地旋转实际角度修正因子。因机械摩擦/打滑，实际旋转角度偏小时增大此值。
  * 例：命令 0.25圈(90°) 实测 86° -> 90/86 ≈ 1.0465, 0.508*1.0465 ≈ 0.5316f */
-#define TURN_CORRECTION_FACTOR 0.5316f /* CIRCLE旋转编码器计数补偿因子, unit: ratio */
-/* LEFT/RIGHT命令中的90° quarter-turn使用独立修正因子，与CIRCLE分离调校 */
-#define QUARTER_TURN_CORRECTION_FACTOR 0.5316f /* quarter-turn编码器计数补偿因子, unit: ratio */
+#define TURN_CORRECTION_FACTOR 0.508f /* CIRCLE旋转编码器计数补偿因子, unit: ratio */
+/* LEFT/RIGHT 命令中的 90° quarter-turn 使用独立修正因子，与 CIRCLE 分离调校。
+ * LEFT 和 RIGHT 各自独立，可分别调校编码器补偿。 */
+#define QUARTER_TURN_LEFT_CORRECTION_FACTOR  0.5117f /* LEFT quarter-turn编码器补偿因子, unit: ratio (多转则减小) */
+#define QUARTER_TURN_RIGHT_CORRECTION_FACTOR 0.5200f /* RIGHT quarter-turn编码器补偿因子, unit: ratio (多转则减小) */
+/* quarter-turn 单次转动的圈数步长。默认 0.25 即 90°。增大则多转，
+ * 减小则少转，用于在机械打滑/摩擦导致转动不足或过量时微调。 */
+#define QUARTER_TURN_STEPS 0.25f /* quarter-turn步长, unit: 圈数 (1.0=360°) */
 
 /* Command-level output limit: any high-level command (FORWARD/BACKWARD/LEFT/RIGHT/RUN
  * that sets motor percent or starts position motion) will be capped to this percent

@@ -49,7 +49,7 @@
                     ▼
                 UART2_HandleCommand()
                 ├── FORWARD/BACKWARD → Mecanum_StepForward()
-                ├── LEFT/RIGHT       → Mecanum_StepCircle() + Mecanum_StepForward() 组合（先旋转 90°，直行，再转回）
+                ├── LEFT/RIGHT       → Mecanum_StepQuarterTurn() + Mecanum_StepForward() 组合（先 90° 转向前进方向，直行，再90°转回）QUARTER_TURN_LEFT/RIGHT_CORRECTION_FACTOR 独立校准
                 ├── CIRCLE           → Mecanum_StepCircle()
                 ├── RUN              → 设置 base_speed_percent
                 └── STOP             → 清除所有运动 + 回复 STOPPED
@@ -116,6 +116,8 @@
 | MOTION_KIND_FORWARD | 前进/后退 n 格 | +1 = 前, -1 = 后 |
 | MOTION_KIND_STRAFE | 左/右横移 n 格 | +1 = 左, -1 = 右 |
 | MOTION_KIND_CIRCLE | 原地转圈 n 次 | +1 = 顺时针 |
+| MOTION_KIND_QUARTER_TURN_LEFT | LEFT 命令 90° 转向 | -1 = 逆时针 |
+| MOTION_KIND_QUARTER_TURN_RIGHT | RIGHT 命令 90° 转向 | +1 = 顺时针 |
 
 ### 第四层：电机控制层
 
@@ -288,6 +290,18 @@ scripts/build_and_flash.sh Debug
 
 **距离换算关键参数：** `WHEEL_DIAM_M`、`WHEEL_BASE_M`、`WHEEL_TRACK_M`、`ENCODER_LINES`、`ENCODER_QUADRATURE`、`GEAR_RATIO`
 
-这些参数直接影响 `FORWARD`、`LEFT`、`RIGHT` 和 `CIRCLE` 的距离换算。
+这些参数直接影响 `FORWARD`、`BACKWARD`、`LEFT`、`RIGHT` 和 `CIRCLE` 的距离换算。
 
-**调参建议：** 先使用 `RUN 20` 验证速度闭环，再用 `FORWARD 1` / `LEFT 1` 验证编码器计数。如需校准原地旋转，调整 `WHEEL_BASE_M` / `WHEEL_TRACK_M` 后重建并测试 `CIRCLE 1`。
+**补偿因子：**
+
+| 宏 | 默认值 | 作用 |
+|---|---|---|
+| `FORWARD_CORRECTION_FACTOR` | 1.0435f | 前进/后退编码器补偿 |
+| `STRAFE_CORRECTION_FACTOR` | 1.0656f | 左/右横移编码器补偿 |
+| `TURN_CORRECTION_FACTOR` | 0.508f | CIRCLE 原地旋转编码器补偿 |
+| `QUARTER_TURN_LEFT_CORRECTION_FACTOR` | 0.5117f | LEFT 命令 90° 转向编码器补偿 |
+| `QUARTER_TURN_RIGHT_CORRECTION_FACTOR` | 0.5200f | RIGHT 命令 90° 转向编码器补偿 |
+
+LEFT/RIGHT 的 quarter-turn 使用独立因子，与 CIRCLE 的 `TURN_CORRECTION_FACTOR` 分离调校。多转则减小因子，少转则增大因子。
+
+**调参建议：** 先使用 `RUN 20` 验证速度闭环，再用 `FORWARD 1` / `LEFT 1` / `RIGHT 1` 验证编码器计数。如需校准原地旋转，调整 `WHEEL_BASE_M` / `WHEEL_TRACK_M` 后重建并测试 `CIRCLE 1`。
